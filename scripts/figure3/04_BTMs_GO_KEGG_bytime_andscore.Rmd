@@ -1,0 +1,257 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+# library(DESeq2)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(ggplot2)
+library(STRINGdb)
+library(ggplot2)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path_og, "data/processed_data/")
+datTable = paste0(path_og, "data/data_tables/")
+source(paste0(path_og,"scripts/load_mvs_genes.R"))
+source(paste0(path_og,"scripts/functions_step45.R"))
+source(paste0(path_og,"scripts/subset_dataobjects.R"))
+source(paste0(path_og,"scripts/run_pooled_aurocs.R"))
+source(paste0(path_og,"scripts/figure3/04_BTM_GO_KEGG_functions.R"))
+source(paste0(path_og,"scripts/figure3/04_data_load.R"))
+fig_path = paste0(path_og,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+
+## get btms, go, kegg for signature genes
+```{r}
+scores_list = readRDS(paste0(datPath, "score_genes.rds"))
+
+## get sig pathwayss
+arena_sig_paths = get_paths_as_list(scores_list$arena_pos, scores_list$arena_neg, arena_all_peak)
+corona_sig_paths = get_paths_as_list(scores_list$corona_pos, scores_list$corona_neg, corona_all_peak)
+filo_sig_paths = get_paths_as_list(scores_list$filo_pos, scores_list$filo_neg, filo_all_peak)
+flavi_sig_paths = get_paths_as_list(scores_list$flavi_pos, scores_list$flavi_neg, flavi_all_peak)
+ortho_sig_paths = get_paths_as_list(scores_list$ortho_pos, scores_list$ortho_neg, ortho_all_peak)
+all_sig_paths = get_paths_as_list(scores_list$all_pos, scores_list$all_neg, all_peak)
+
+## saving paths as a list
+sig_path_list = list(arena_sig_paths, corona_sig_paths, filo_sig_paths, flavi_sig_paths, ortho_sig_paths, all_sig_paths)
+names(sig_path_list) = c("arena", "corona", "filo", "flavi", "ortho", "all")
+
+mvs_sig_paths = get_paths_as_list(mvs.up, mvs.down, unique(c(all_peak, mvs.up, mvs.down)))
+sig_path_list$mvs = mvs_sig_paths
+
+saveRDS(sig_path_list, file = paste0(datPath,"sig_path_list",".rds"))
+```
+
+## DEG by TIME
+set deg thresholds (same ones from deg generation for 3A)
+```{r}
+padj_thresh = 0.05 
+es_thresh = 0.1
+min_studies = 2
+```
+
+### get pathways for 
+```{r}
+## arena
+arena_t1_genes = get_input(arena_t1_dat, padj_thresh, es_thresh, min_studies)
+arena_t1_paths = get_paths_as_list(arena_t1_genes, list = TRUE)
+arena_t2_genes = get_input(arena_t2_dat, padj_thresh, es_thresh, min_studies)
+arena_t2_paths = get_paths_as_list(arena_t2_genes, list = TRUE)
+arena_t3_genes = get_input(arena_t3_dat, padj_thresh, es_thresh, min_studies)
+arena_t3_paths = get_paths_as_list(arena_t3_genes, list = TRUE)
+arena_t4_genes = get_input(arena_t4_dat, padj_thresh, es_thresh, min_studies)
+arena_t4_paths = get_paths_as_list(arena_t4_genes, list = TRUE)
+arena_t5_genes = get_input(arena_t5_dat, padj_thresh, es_thresh, min_studies)
+# arena_t5_paths = get_paths_as_list(arena_t5_genes, list = TRUE)
+
+#saving paths as list
+arena_paths_list = list(arena_t1_paths, arena_t2_paths, arena_t3_paths, arena_t4_paths) #, arena_t5_paths)
+arena_genes_list = list(arena_t1_genes, arena_t2_genes, arena_t3_genes, arena_t4_genes) #, arena_t5_genes)
+names(arena_paths_list) = c("t1","t2","t3","t4") #,"t5")
+names(arena_genes_list) = c("t1","t2","t3","t4") #,"t5")
+
+saveRDS(arena_paths_list, file = paste0(datPath,"arena_paths_list",".rds"))
+saveRDS(arena_genes_list, file = paste0(datPath,"arena_genes_list",".rds"))
+```
+
+### get all paths for corona
+```{r}
+## corona
+corona_t1_genes = get_input(corona_t1_dat, padj_thresh, es_thresh, min_studies)
+corona_t1_paths = get_paths_as_list(corona_t1_genes, list = TRUE)
+corona_t2_genes = get_input(corona_t2_dat, padj_thresh, es_thresh, min_studies)
+corona_t2_paths = get_paths_as_list(corona_t2_genes, list = TRUE)
+corona_t3_genes = get_input(corona_t3_dat, padj_thresh, es_thresh, min_studies)
+corona_t3_paths = get_paths_as_list(corona_t3_genes, list = TRUE)
+# corona_t4_genes = get_input(corona_t4_dat, padj_thresh, es_thresh, min_studies)
+# corona_t4_paths = get_paths_as_list(corona_t4_genes, list = TRUE)
+corona_t5_genes = get_input(corona_t5_dat, padj_thresh, es_thresh, min_studies)
+corona_t5_paths = get_paths_as_list(corona_t5_genes, list = TRUE)
+
+#saving paths as list
+corona_paths_list = list(corona_t1_paths, corona_t2_paths, corona_t3_paths, corona_t5_paths)
+corona_genes_list = list(corona_t1_genes, corona_t2_genes, corona_t3_genes, corona_t5_genes)
+names(corona_paths_list) = c("t1","t2","t3","t5")
+names(corona_genes_list) = c("t1","t2","t3","t5")
+
+saveRDS(corona_paths_list, file = paste0(datPath,"corona_paths_list",".rds"))
+saveRDS(corona_genes_list, file = paste0(datPath,"corona_genes_list",".rds"))
+```
+
+### get all paths for filo
+```{r}
+## filo
+filo_t1_genes = get_input(filo_t1_dat, padj_thresh, es_thresh, min_studies)
+filo_t1_paths = get_paths_as_list(filo_t1_genes, list = TRUE)
+filo_t2_genes = get_input(filo_t2_dat, padj_thresh, es_thresh, min_studies)
+filo_t2_paths = get_paths_as_list(filo_t2_genes, list = TRUE)
+filo_t3_genes = get_input(filo_t3_dat, padj_thresh, es_thresh, min_studies)
+filo_t3_paths = get_paths_as_list(filo_t3_genes, list = TRUE)
+filo_t4_genes = get_input(filo_t4_dat, padj_thresh, es_thresh, min_studies)
+filo_t4_paths = get_paths_as_list(filo_t4_genes, list = TRUE)
+# filo_t5_genes = get_input(filo_t5_dat, padj_thresh, es_thresh, min_studies)
+# filo_t5_paths = get_paths_as_list(filo_t5_genes, list = TRUE)
+
+#saving paths as list
+filo_paths_list = list(filo_t1_paths, filo_t2_paths, filo_t3_paths, filo_t4_paths) #, filo_t5_paths)
+filo_genes_list = list(filo_t1_genes, filo_t2_genes, filo_t3_genes, filo_t4_genes) #, filo_t5_genes)
+names(filo_paths_list) = c("t1","t2","t3","t4") #,"t5")
+names(filo_genes_list) = c("t1","t2","t3","t4") #,"t5")
+
+saveRDS(filo_paths_list, file = paste0(datPath,"filo_paths_list",".rds"))
+saveRDS(filo_genes_list, file = paste0(datPath,"filo_genes_list",".rds"))
+```
+
+### get all paths for flavi
+```{r}
+## flavi
+flavi_t1_genes = get_input(flavi_t1_dat, padj_thresh, es_thresh, min_studies)
+flavi_t1_paths = get_paths_as_list(flavi_t1_genes, list = TRUE)
+flavi_t2_genes = get_input(flavi_t2_dat, padj_thresh, es_thresh, min_studies)
+flavi_t2_paths = get_paths_as_list(flavi_t2_genes, list = TRUE)
+flavi_t3_genes = get_input(flavi_t3_dat, padj_thresh, es_thresh, min_studies)
+flavi_t3_paths = get_paths_as_list(flavi_t3_genes, list = TRUE)
+# flavi_t4_genes = get_input(flavi_t4_dat, padj_thresh, es_thresh, min_studies)
+# flavi_t4_paths = get_paths_as_list(flavi_t4_genes, list = TRUE)
+# flavi_t5_genes = get_input(flavi_t5_dat, padj_thresh, es_thresh, min_studies)
+# flavi_t5_paths = get_paths_as_list(flavi_t5_genes, list = TRUE)
+
+#saving paths as list
+flavi_paths_list = list(flavi_t1_paths, flavi_t2_paths, flavi_t3_paths) #, flavi_t4_paths, flavi_t5_paths)
+flavi_genes_list = list(flavi_t1_genes, flavi_t2_genes, flavi_t3_genes) #, flavi_t4_genes, flavi_t5_genes)
+names(flavi_paths_list) = c("t1","t2","t3")#,"t4","t5")
+names(flavi_genes_list) = c("t1","t2","t3")#,"t4","t5")
+
+saveRDS(flavi_paths_list, file = paste0(datPath,"flavi_paths_list",".rds"))
+saveRDS(flavi_genes_list, file = paste0(datPath,"flavi_genes_list",".rds"))
+```
+
+### get all paths for ortho
+```{r}
+## ortho
+# ortho_t1_genes = get_input(ortho_t1_dat, padj_thresh, es_thresh, min_studies)
+# ortho_t1_paths = get_paths_as_list(ortho_t1_genes, list = TRUE)
+ortho_t2_genes = get_input(ortho_t2_dat, padj_thresh, es_thresh, min_studies)
+ortho_t2_paths = get_paths_as_list(ortho_t2_genes, list = TRUE)
+ortho_t3_genes = get_input(ortho_t3_dat, padj_thresh, es_thresh, min_studies)
+ortho_t3_paths = get_paths_as_list(ortho_t3_genes, list = TRUE)
+# ortho_t4_genes = get_input(ortho_t4_dat, padj_thresh, es_thresh, min_studies)
+# ortho_t4_paths = get_paths_as_list(ortho_t4_genes, list = TRUE)
+# ortho_t5_genes = get_input(ortho_t5_dat, padj_thresh, es_thresh, min_studies)
+# ortho_t5_paths = get_paths_as_list(ortho_t5_genes, list = TRUE)
+
+#saving paths as list
+ortho_paths_list = list( ortho_t2_paths, ortho_t3_paths)#, ortho_t4_paths, ortho_t5_paths)
+ortho_genes_list = list(ortho_t2_genes, ortho_t3_genes)#, ortho_t4_genes, ortho_t5_genes)
+names(ortho_paths_list) = c("t2","t3")#,"t4","t5")
+names(ortho_genes_list) = c("t2","t3")#,"t4","t5")
+
+saveRDS(ortho_paths_list, file = paste0(datPath,"ortho_paths_list",".rds"))
+saveRDS(ortho_genes_list, file = paste0(datPath,"ortho_genes_list",".rds"))
+```
+
+## dat obj for gene scores
+```{r}
+arena_dat = (readRDS(file = paste0(datPath,"arena","_timesplit_dat.rds"))$t4)
+corona_dat = (readRDS(file = paste0(datPath,"corona","_timesplit_dat.rds"))$t1)
+filo_dat = (readRDS(file = paste0(datPath,"filo","_timesplit_dat.rds"))$t3)
+flavi_dat = (readRDS(file = paste0(datPath,"flavi","_timesplit_dat.rds"))$t3) 
+ortho_dat = (readRDS(file = paste0(datPath,"ortho","_timesplit_dat.rds"))$t2) 
+```
+
+## dat obj for gene scores
+```{r}
+sig_path_list = readRDS(paste0(datPath,"sig_path_list",".rds"))
+
+arena_peak = sig_path_list$arena
+corona_peak = sig_path_list$corona
+filo_peak = sig_path_list$filo
+flavi_peak = sig_path_list$flavi
+ortho_peak = sig_path_list$ortho
+
+threshold_fdr_for_geoMean = .2
+es_fdr_for_geoMean = 0
+
+arena_peak$btm_pos = add_score_to_btm(arena_peak$btm_pos, arena_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+arena_peak$btm_neg = add_score_to_btm(arena_peak$btm_neg, arena_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+corona_peak$btm_pos = add_score_to_btm(corona_peak$btm_pos, corona_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+corona_peak$btm_neg = add_score_to_btm(corona_peak$btm_neg, corona_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+filo_peak$btm_pos = add_score_to_btm(filo_peak$btm_pos, filo_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+filo_peak$btm_neg = add_score_to_btm(filo_peak$btm_neg, filo_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+flavi_peak$btm_pos = add_score_to_btm(flavi_peak$btm_pos, flavi_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+flavi_peak$btm_neg = add_score_to_btm(flavi_peak$btm_neg, flavi_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+ortho_peak$btm_pos = add_score_to_btm(ortho_peak$btm_pos, ortho_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+ortho_peak$btm_neg = add_score_to_btm(ortho_peak$btm_neg, ortho_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+```
+
+# path info at signatures
+```{r}
+arena_peak$btm_pos$dir = "pos"
+arena_peak$btm_neg$dir = "neg"
+arena_btms = rbind(arena_peak$btm_pos, arena_peak$btm_neg)
+arena_btms$virus = "Arenaviridae"
+
+corona_peak$btm_pos$dir = "pos"
+corona_peak$btm_neg$dir = "neg"
+corona_btms = rbind(corona_peak$btm_pos, corona_peak$btm_neg)
+corona_btms$virus = "Coronaviridae"
+
+filo_peak$btm_pos$dir = "pos"
+filo_peak$btm_neg$dir = "neg"
+filo_btms = rbind(filo_peak$btm_pos, filo_peak$btm_neg)
+filo_btms$virus = "Filoviridae"
+
+flavi_peak$btm_pos$dir = "pos"
+flavi_peak$btm_neg$dir = "neg"
+flavi_btms = rbind(flavi_peak$btm_pos, flavi_peak$btm_neg)
+flavi_btms$virus = "Flavivirdae"
+
+ortho_peak$btm_pos$dir = "pos"
+ortho_peak$btm_neg$dir = "neg"
+ortho_btms = rbind(ortho_peak$btm_pos, ortho_peak$btm_neg)
+ortho_btms$virus = "Orthomyxoviridae"
+
+btm_s6 = rbind(arena_btms, corona_btms, filo_btms, flavi_btms, ortho_btms)
+write.csv(btm_s6, file = paste0(datTable,"stable6_btms.csv"), row.names=FALSE)
+```
+
+###

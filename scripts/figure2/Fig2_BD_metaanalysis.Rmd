@@ -1,0 +1,487 @@
+title: "Untitled"
+output: html_document
+date: "2022-12-13"
+---
+```{r}
+library(grid)
+library(forestploter)
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(meta)
+library(multtest)
+library(magrittr)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+fig_path = paste0(path,"figures/")
+fig2_path = paste0(fig_path, "Figure2/")
+
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/meta_forresplot_scripts.R"))
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "5a_scores_added.rds"))
+cols = c("dataset","disease","virus","virus_family","dataset2","dataset3","dataset4","dataset5","virus_description","day","day2","disease_day","macaque_species","animal","platform","sample_type", "time_cat", "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "mod1", "mod2", "mod3", "mod4", "scores_normed", "mvs_scores_normed")
+df = bind_pheno_tables(dat, cols)
+```
+
+
+```{r}
+# detach("package:plyr", unload=TRUE)
+library(dplyr)
+a_1 = meta_analysis_out(df, "Arenaviridae", "t1")
+c_1 = meta_analysis_out(df, "Coronaviridae", "t1")
+f_1 = meta_analysis_out(df, "Filoviridae", "t1")
+l_1 = meta_analysis_out(df, "Flaviviridae", "t1")
+o_1 = meta_analysis_out(df, "Orthomyxoviridae", "t1")
+
+a_2 = meta_analysis_out(df, "Arenaviridae", "t2")
+c_2 = meta_analysis_out(df, "Coronaviridae", "t2")
+f_2 = meta_analysis_out(df, "Filoviridae", "t2")
+l_2 = meta_analysis_out(df, "Flaviviridae", "t2")
+o_2 = meta_analysis_out(df, "Orthomyxoviridae", "t2")
+
+a_3 = meta_analysis_out(df, "Arenaviridae", "t3")
+c_3 = meta_analysis_out(df, "Coronaviridae", "t3")
+f_3 = meta_analysis_out(df, "Filoviridae", "t3")
+l_3 = meta_analysis_out(df, "Flaviviridae", "t3")
+o_3 = meta_analysis_out(df, "Orthomyxoviridae", "t3")
+
+a_4 = meta_analysis_out(df, "Arenaviridae", "t4")
+c_4 = meta_analysis_out(df, "Coronaviridae", "t4")
+f_4 = meta_analysis_out(df, "Filoviridae", "t4")
+# l_4 = meta_analysis_out(df, "Flaviviridae", "t4")
+# o_4 = meta_analysis_out(df, "Orthomyxoviridae", "t4")
+
+meta_viruses = rbind(a_1, c_1, f_1, l_1, o_1,
+                   a_2, c_2, f_2, l_2, o_2,
+                   a_3, c_3, f_3, l_3, o_3,
+                   a_4, c_4, f_4)%>% as.data.frame()
+
+t1_out = prep_for_table(meta_viruses, "t1", ", Days 1-2")
+t2_out = prep_for_table(meta_viruses, "t2", ", Days 3-5")
+t3_out = prep_for_table(meta_viruses, "t3", ", Days 6-8")
+t4_out = prep_for_table(meta_viruses, "t4", ", Days 9-13")
+```
+
+```{r}
+color_choice = "#c7e9c0"
+```
+
+```{r}
+test = t1_out
+test = test[,c(2:5,16:21)]
+test$`Time Category` = test$Virus
+test =test[c("Time Category", colnames(test)[1:9])]
+test$Virus = NULL
+rownames(test) = NULL
+
+test = rbind(rep(NA,ncol(test)), test)
+test[1,1] = "T1: Days 1-2"
+test$`Time Category` <- ifelse(is.na(test$`# Datasets`), 
+                      test$`Time Category`,
+                      paste0("   ", test$`Time Category`))
+test$`# Datasets` <- ifelse(is.na(test$`# Datasets`), "", test$`# Datasets`)
+test$`# Cases` <- ifelse(is.na(test$`# Cases`), "", test$`# Cases`)
+test$`# Controls` <- ifelse(is.na(test$`# Controls`), "", test$`# Controls`)
+
+test$smd_random %<>% as.numeric()
+test$smd_random_se %<>% as.numeric()
+test$random_lower %<>% as.numeric()
+test$random_upper %<>% as.numeric()
+test$smd_random_p %<>% as.numeric()
+
+test$` ` <- paste(rep(" ", 20), collapse = " ")
+
+colnames(test)[5] = "est"
+colnames(test)[6] = "se"
+colnames(test)[7] = "p"
+colnames(test)[8] = "low"
+colnames(test)[9] = "hi"
+test$p = round(test$p,3)
+test$p <- ifelse(is.na(test$p), "", test$p)
+test$significance = ifelse(test$p < 0.05, "*","")
+test$significance = ifelse(test$p < 0.01, "**",test$significance)
+test$significance = ifelse(test$p < 0.001, "***",test$significance)
+test$significance <- ifelse(test$p=="", "", test$significance)
+
+
+test$`SMD (95% CI)` <- ifelse(is.na(test$se), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     test$est, test$low, test$hi))
+
+ncol(test)
+test$color = ifelse(test$p >= 0.05 | test$p == "", "white",color_choice)
+```
+
+```{r}
+test2 = t2_out
+test2 = test2[,c(2:5,16:21)]
+test2$`Time Category` = test2$Virus
+test2 =test2[c("Time Category", colnames(test2)[1:9])]
+test2$Virus = NULL
+rownames(test2) = NULL
+
+test2 = rbind(rep(NA,ncol(test2)), test2)
+test2[1,1] = "T2: Days 3-5"
+test2$`Time Category` <- ifelse(is.na(test2$`# Datasets`), 
+                      test2$`Time Category`,
+                      paste0("   ", test2$`Time Category`))
+test2$`# Datasets` <- ifelse(is.na(test2$`# Datasets`), "", test2$`# Datasets`)
+test2$`# Cases` <- ifelse(is.na(test2$`# Cases`), "", test2$`# Cases`)
+test2$`# Controls` <- ifelse(is.na(test2$`# Controls`), "", test2$`# Controls`)
+
+test2$smd_random %<>% as.numeric()
+test2$smd_random_se %<>% as.numeric()
+test2$random_lower %<>% as.numeric()
+test2$random_upper %<>% as.numeric()
+test2$smd_random_p %<>% as.numeric()
+
+test2$` ` <- paste(rep(" ", 20), collapse = " ")
+
+colnames(test2)[5] = "est"
+colnames(test2)[6] = "se"
+colnames(test2)[7] = "p"
+colnames(test2)[8] = "low"
+colnames(test2)[9] = "hi"
+test2$p = round(test2$p,3)
+test2$p <- ifelse(is.na(test2$p), "", test2$p)
+test2$significance = ifelse(test2$p < 0.05, "*","")
+test2$significance = ifelse(test2$p < 0.01, "**",test2$significance)
+test2$significance = ifelse(test2$p < 0.001, "***",test2$significance)
+test2$significance <- ifelse(test2$p=="", "", test2$significance)
+
+test2$`SMD (95% CI)` <- ifelse(is.na(test2$se), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     test2$est, test2$low, test2$hi))
+
+ncol(test2)
+test2$color = ifelse(test2$p >= 0.05 | test2$p == "", "white",color_choice)
+```
+
+```{r}
+test3 = t3_out
+test3 = test3[,c(2:5,16:21)]
+test3$`Time Category` = test3$Virus
+test3 =test3[c("Time Category", colnames(test3)[1:9])]
+test3$Virus = NULL
+rownames(test3) = NULL
+
+test3 = rbind(rep(NA,ncol(test3)), test3)
+test3[1,1] = "T3: Days 6-8"
+test3$`Time Category` <- ifelse(is.na(test3$`# Datasets`), 
+                      test3$`Time Category`,
+                      paste0("   ", test3$`Time Category`))
+test3$`# Datasets` <- ifelse(is.na(test3$`# Datasets`), "", test3$`# Datasets`)
+test3$`# Cases` <- ifelse(is.na(test3$`# Cases`), "", test3$`# Cases`)
+test3$`# Controls` <- ifelse(is.na(test3$`# Controls`), "", test3$`# Controls`)
+
+test3$smd_random %<>% as.numeric()
+test3$smd_random_se %<>% as.numeric()
+test3$random_lower %<>% as.numeric()
+test3$random_upper %<>% as.numeric()
+test3$smd_random_p %<>% as.numeric()
+
+test3$` ` <- paste(rep(" ", 20), collapse = " ")
+
+colnames(test3)[5] = "est"
+colnames(test3)[6] = "se"
+colnames(test3)[7] = "p"
+colnames(test3)[8] = "low"
+colnames(test3)[9] = "hi"
+test3$p = round(test3$p,3)
+test3$p <- ifelse(is.na(test3$p), "", test3$p)
+test3$significance = ifelse(test3$p < 0.05, "*","")
+test3$significance = ifelse(test3$p < 0.01, "**",test3$significance)
+test3$significance = ifelse(test3$p < 0.001, "***",test3$significance)
+test3$significance <- ifelse(test3$p=="", "", test3$significance)
+
+test3$`SMD (95% CI)` <- ifelse(is.na(test3$se), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     test3$est, test3$low, test3$hi))
+
+ncol(test3)
+test3$color = ifelse(test3$p >= 0.05 | test3$p == "", "white",color_choice)
+```
+
+
+```{r}
+test4 = t4_out
+test4 = test4[,c(2:5,16:21)]
+test4$`Time Category` = test4$Virus
+test4 =test4[c("Time Category", colnames(test4)[1:9])]
+test4$Virus = NULL
+rownames(test4) = NULL
+
+test4 = rbind(rep(NA,ncol(test4)), test4)
+test4[1,1] = "T4: Days 9-13"
+test4$`Time Category` <- ifelse(is.na(test4$`# Datasets`), 
+                      test4$`Time Category`,
+                      paste0("   ", test4$`Time Category`))
+test4$`# Datasets` <- ifelse(is.na(test4$`# Datasets`), "", test4$`# Datasets`)
+test4$`# Cases` <- ifelse(is.na(test4$`# Cases`), "", test4$`# Cases`)
+test4$`# Controls` <- ifelse(is.na(test4$`# Controls`), "", test4$`# Controls`)
+
+test4$smd_random %<>% as.numeric()
+test4$smd_random_se %<>% as.numeric()
+test4$random_lower %<>% as.numeric()
+test4$random_upper %<>% as.numeric()
+test4$smd_random_p %<>% as.numeric()
+
+test4$` ` <- paste(rep(" ", 20), collapse = " ")
+
+colnames(test4)[5] = "est"
+colnames(test4)[6] = "se"
+colnames(test4)[7] = "p"
+colnames(test4)[8] = "low"
+colnames(test4)[9] = "hi"
+test4$p = round(test4$p,3)
+test4$p <- ifelse(is.na(test4$p), "", test4$p)
+test4$significance = ifelse(test4$p < 0.05, "*","")
+test4$significance = ifelse(test4$p < 0.01, "**",test4$significance)
+test4$significance = ifelse(test4$p < 0.001, "***",test4$significance)
+test4$significance <- ifelse(test4$p=="", "", test4$significance)
+
+test4$`SMD (95% CI)` <- ifelse(is.na(test4$se), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     test4$est, test4$low, test4$hi))
+
+ncol(test4)
+test4$color = ifelse(test4$p >= 0.05 | test4$p == "", "white",color_choice)
+```
+
+```{r}
+test_input = rbind(test, test2, test3,test4)
+test_input$p = test_input$significance
+
+test_input$`Time Category` = gsub("Orthomyxoviridae","Orthomyxoviridae      ",test_input$`Time Category`)
+
+p_test <- forestploter::forest(test_input[,c(1:4, 10,12,7)],
+            est = test_input$est,
+            lower = test_input$low, 
+            upper = test_input$hi,
+            sizes = test_input$se,
+            ci_column = 5,
+            ref_line = 0,
+            arrow_lab = c("\n", "MVS Score greater\nthan baseline (T0)"),
+            xlim = c(-1,4.2),
+            ticks_at = c(-1,0, 1, 2, 3),
+            # is_summary = c(NA,rep(TRUE,6)),
+            footnote = " ")
+
+# Print plot
+png(file = paste0(fig2_path,"2D_NHP.png"), width = 7500, height = 7200, res = 800)
+
+plot(p_test)
+
+dev.off()
+```
+
+## humans
+```{r}
+humTable3 = readRDS(file = paste0(datPath,"humanDat_fullTable_3",".rds"))
+humTable3$time_cat = ifelse(humTable3$dayOfInfection < 6, "t2","t3")
+humTable3$time_cat = ifelse(humTable3$dayOfInfection < 3, "t1",humTable3$time_cat)
+humTable3$time_cat = ifelse(humTable3$dayOfInfection == 0, "t0",humTable3$time_cat)
+humTable3$Virus = humTable3$virus2
+unique(humTable3$Virus)
+humTable3$animal = humTable3$subject
+humTable3$day = humTable3$dayOfInfection
+humTable3$dataset = humTable3$study
+humTable3$dataset5 = humTable3$Virus
+humTable3$animal_day = paste0(humTable3$animal,"_",humTable3$day)
+
+T1_ifv = meta_analysis_out(humTable3, "IFV", "t1")
+T1_hrv = meta_analysis_out(humTable3, "HRV", "t1")
+T1_rsv = meta_analysis_out(humTable3, "RSV", "t1")
+
+T2_ifv = meta_analysis_out(humTable3, "IFV", "t2")
+T2_hrv = meta_analysis_out(humTable3, "HRV", "t2")
+T2_rsv = meta_analysis_out(humTable3, "RSV", "t2")
+
+T3_ifv = meta_analysis_out(humTable3, "IFV", "t3")
+# T3_hrv = meta_analysis_out(humTable3, "HRV", "t3")
+T3_rsv = meta_analysis_out(humTable3, "RSV", "t3")
+
+times_all_hum = rbind(T1_ifv, T1_hrv, T1_rsv, T2_ifv, T2_hrv, T2_rsv, T3_ifv, T3_rsv) %>% as.data.frame()
+
+t1_all_out = prep_for_table(times_all_hum, "t1", ", Days 1-2")
+t2_all_out = prep_for_table(times_all_hum, "t2", ", Days 3-5")
+t3_all_out = prep_for_table(times_all_hum, "t3", ", Days 6-8")
+
+
+```
+
+```{r}
+t1_hum = t1_all_out
+t1_hum = t1_hum[,c(2:5,16:21)]
+t1_hum$`Time Category` = t1_hum$Virus
+t1_hum =t1_hum[c("Time Category", colnames(t1_hum)[1:9])]
+t1_hum$Virus = NULL
+rownames(t1_hum) = NULL
+
+t1_hum = rbind(rep(NA,ncol(t1_hum)), t1_hum)
+t1_hum[1,1] = "T1: Days 1-2"
+t1_hum$`Time Category` <- ifelse(is.na(t1_hum$`# Datasets`), 
+                      t1_hum$`Time Category`,
+                      paste0("   ", t1_hum$`Time Category`))
+t1_hum$`# Datasets` <- ifelse(is.na(t1_hum$`# Datasets`), "", t1_hum$`# Datasets`)
+t1_hum$`# Cases` <- ifelse(is.na(t1_hum$`# Cases`), "", t1_hum$`# Cases`)
+t1_hum$`# Controls` <- ifelse(is.na(t1_hum$`# Controls`), "", t1_hum$`# Controls`)
+
+t1_hum$smd_random %<>% as.numeric()
+t1_hum$smd_random_se %<>% as.numeric()
+t1_hum$random_lower %<>% as.numeric()
+t1_hum$random_upper %<>% as.numeric()
+t1_hum$smd_random_p %<>% as.numeric()
+
+t1_hum$` ` <- paste(rep(" ", 20), collapse = " ")
+
+colnames(t1_hum)[5] = "est"
+colnames(t1_hum)[6] = "se"
+colnames(t1_hum)[7] = "p"
+colnames(t1_hum)[8] = "low"
+colnames(t1_hum)[9] = "hi"
+t1_hum$p = round(t1_hum$p,3)
+t1_hum$p <- ifelse(is.na(t1_hum$p), "", t1_hum$p)
+t1_hum$significance = ifelse(t1_hum$p < 0.05, "*","")
+t1_hum$significance = ifelse(t1_hum$p < 0.01, "**",t1_hum$significance)
+t1_hum$significance = ifelse(t1_hum$p < 0.001, "***",t1_hum$significance)
+t1_hum$significance <- ifelse(t1_hum$p=="", "", t1_hum$significance)
+
+t1_hum$`SMD (95% CI)` <- ifelse(is.na(t1_hum$se), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     t1_hum$est, t1_hum$low, t1_hum$hi))
+
+ncol(t1_hum)
+t1_hum$color = ifelse(t1_hum$p >= 0.05 | t1_hum$p == "", "white",color_choice)
+```
+
+```{r}
+t2_hum = t2_all_out
+t2_hum = t2_hum[,c(2:5,16:21)]
+t2_hum$`Time Category` = t2_hum$Virus
+t2_hum =t2_hum[c("Time Category", colnames(t2_hum)[1:9])]
+t2_hum$Virus = NULL
+rownames(t2_hum) = NULL
+
+t2_hum = rbind(rep(NA,ncol(t2_hum)), t2_hum)
+t2_hum[1,1] = "T2: Days 3-5"
+t2_hum$`Time Category` <- ifelse(is.na(t2_hum$`# Datasets`), 
+                      t2_hum$`Time Category`,
+                      paste0("   ", t2_hum$`Time Category`))
+t2_hum$`# Datasets` <- ifelse(is.na(t2_hum$`# Datasets`), "", t2_hum$`# Datasets`)
+t2_hum$`# Cases` <- ifelse(is.na(t2_hum$`# Cases`), "", t2_hum$`# Cases`)
+t2_hum$`# Controls` <- ifelse(is.na(t2_hum$`# Controls`), "", t2_hum$`# Controls`)
+
+t2_hum$smd_random %<>% as.numeric()
+t2_hum$smd_random_se %<>% as.numeric()
+t2_hum$random_lower %<>% as.numeric()
+t2_hum$random_upper %<>% as.numeric()
+t2_hum$smd_random_p %<>% as.numeric()
+
+t2_hum$` ` <- paste(rep(" ", 20), collapse = " ")
+
+colnames(t2_hum)[5] = "est"
+colnames(t2_hum)[6] = "se"
+colnames(t2_hum)[7] = "p"
+colnames(t2_hum)[8] = "low"
+colnames(t2_hum)[9] = "hi"
+t2_hum$p = round(t2_hum$p,3)
+t2_hum$p <- ifelse(is.na(t2_hum$p), "", t2_hum$p)
+t2_hum$significance = ifelse(t2_hum$p < 0.05, "*","")
+t2_hum$significance = ifelse(t2_hum$p < 0.01, "**",t2_hum$significance)
+t2_hum$significance = ifelse(t2_hum$p < 0.001, "***",t2_hum$significance)
+t2_hum$significance <- ifelse(t2_hum$p=="", "", t2_hum$significance)
+
+t2_hum$`SMD (95% CI)` <- ifelse(is.na(t2_hum$se), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     t2_hum$est, t2_hum$low, t2_hum$hi))
+
+ncol(t2_hum)
+t2_hum$color = ifelse(t2_hum$p >= 0.05 | t2_hum$p == "", "white",color_choice)
+```
+
+```{r}
+t3_hum = t3_all_out
+t3_hum = t3_hum[,c(2:5,16:21)]
+t3_hum$`Time Category` = t3_hum$Virus
+t3_hum =t3_hum[c("Time Category", colnames(t3_hum)[1:9])]
+t3_hum$Virus = NULL
+rownames(t3_hum) = NULL
+
+t3_hum = rbind(rep(NA,ncol(t3_hum)), t3_hum)
+t3_hum[1,1] = "T3: Days 6-8"
+t3_hum$`Time Category` <- ifelse(is.na(t3_hum$`# Datasets`), 
+                      t3_hum$`Time Category`,
+                      paste0("   ", t3_hum$`Time Category`))
+t3_hum$`# Datasets` <- ifelse(is.na(t3_hum$`# Datasets`), "", t3_hum$`# Datasets`)
+t3_hum$`# Cases` <- ifelse(is.na(t3_hum$`# Cases`), "", t3_hum$`# Cases`)
+t3_hum$`# Controls` <- ifelse(is.na(t3_hum$`# Controls`), "", t3_hum$`# Controls`)
+
+t3_hum$smd_random %<>% as.numeric()
+t3_hum$smd_random_se %<>% as.numeric()
+t3_hum$random_lower %<>% as.numeric()
+t3_hum$random_upper %<>% as.numeric()
+t3_hum$smd_random_p %<>% as.numeric()
+
+t3_hum$` ` <- paste(rep(" ", 20), collapse = " ")
+
+colnames(t3_hum)[5] = "est"
+colnames(t3_hum)[6] = "se"
+colnames(t3_hum)[7] = "p"
+colnames(t3_hum)[8] = "low"
+colnames(t3_hum)[9] = "hi"
+t3_hum$p = round(t3_hum$p,3)
+t3_hum$p <- ifelse(is.na(t3_hum$p), "", t3_hum$p)
+t3_hum$significance = ifelse(t3_hum$p < 0.05, "*","")
+t3_hum$significance = ifelse(t3_hum$p < 0.01, "**",t3_hum$significance)
+t3_hum$significance = ifelse(t3_hum$p < 0.001, "***",t3_hum$significance)
+t3_hum$significance <- ifelse(t3_hum$p=="", "", t3_hum$significance)
+
+t3_hum$`SMD (95% CI)` <- ifelse(is.na(t3_hum$se), "",
+                             sprintf("%.2f (%.2f to %.2f)",
+                                     t3_hum$est, t3_hum$low, t3_hum$hi))
+
+ncol(t3_hum)
+t3_hum$color = ifelse(t3_hum$p >= 0.05 | t3_hum$p == "", "white",color_choice)
+```
+
+```{r}
+input_human = rbind(t1_hum, t2_hum, t3_hum)
+input_human$p = input_human$significance
+input_human$`Time Category` = gsub("IFV","Orthomyxoviridae (IFV)",input_human$`Time Category`)
+input_human$`Time Category` = gsub("HRV","Picornaviridae (HRV)",input_human$`Time Category`)
+input_human$`Time Category` = gsub("RSV","Pneumoviridae (RSV)",input_human$`Time Category`)
+
+p_test <- forestploter::forest(input_human[,c(1:4, 10,12,7)],
+            est = input_human$est,
+            lower = input_human$low, 
+            upper = input_human$hi,
+            sizes = input_human$se,
+            ci_column = 5,
+            ref_line = 0,
+            arrow_lab = c("\n", "MVS Score greater\nthan baseline (T0)"),
+            xlim = c(-1,4.2),
+            ticks_at = c(-1,0, 1, 2, 3),
+            # is_summary = c(NA,rep(TRUE,6)),
+            footnote = "")
+# MVS Score less\nthan baseline (T0)
+png(file = paste0(fig2_path,"2B_human_forrestplot.png"), width = 7500, height = 7200, res = 800)
+
+plot(p_test)
+
+dev.off()
+```

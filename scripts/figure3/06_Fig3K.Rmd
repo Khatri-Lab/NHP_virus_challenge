@@ -1,0 +1,190 @@
+---
+title: "Untitled"
+output: html_document
+---
+title: "Untitled"
+output: html_document
+date: "2022-12-29"
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+# library(DESeq2)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(circlize)
+library(NatParksPalettes)
+library(STRINGdb)
+library(ComplexHeatmap)
+library(STRINGdb)
+library(scales)
+
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+datTable = paste0(path, "data/data_tables/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/run_pooled_aurocs.R"))
+source(paste0(path,"scripts/figure3/04_BTM_GO_KEGG_functions.R"))
+fig_path = paste0(path,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+```{r}
+scores_list = readRDS(paste0(datPath, "score_genes.rds"))
+rvs.up = scores_list$RNA_only_pos
+rvs.down = scores_list$RNA_only_neg
+```
+
+
+
+## take top positive and top negative pathway
+## generate plot with shared + individual genes present 
+(BTMs)
+```{R}
+sig_path_list = readRDS(file = paste0(datPath,"sig_path_list",".rds"))
+all.up_paths = sig_path_list$all$btm_pos
+all.down_paths = sig_path_list$all$btm_neg
+mvs.up_paths = sig_path_list$mvs$btm_pos
+mvs.down_paths = sig_path_list$mvs$btm_neg
+```
+
+```{R}
+all_peak = sig_path_list$all
+all_peak$btm_pos$dir = "pos"
+all_peak$btm_neg$dir = "neg"
+all_btms = rbind(all_peak$btm_pos, all_peak$btm_neg)
+all_btms$signature = "VRS (NHP)"
+
+mvs_peak = sig_path_list$mvs
+mvs_peak$btm_pos$dir = "pos"
+mvs_peak$btm_neg$dir = "neg"
+mvs_btms = rbind(mvs_peak$btm_pos, mvs_peak$btm_neg)
+mvs_btms$signature = "MVS (Human)"
+btm_s7 = rbind(all_btms, mvs_btms)
+write.csv(btm_s7, file = paste0(datTable,"stable7_btms.csv"), row.names=FALSE)
+```
+
+
+```{R}
+n = 5
+mvs.up_paths = mvs.up_paths[order(mvs.up_paths$p.adj),]
+mvs.up_paths$sig = "MVS"
+all.up_paths = all.up_paths[order(all.up_paths$p.adj),]
+all.up_paths$sig = "RVS"
+paths_up_btm = unique(c(mvs.up_paths$set.name[1:n], all.up_paths$set.name[1:n]))
+
+mvs.down_paths = mvs.down_paths[order(mvs.down_paths$p.adj),]
+mvs.down_paths$sig = "MVS"
+all.down_paths = all.down_paths[order(all.down_paths$p.adj),]
+all.down_paths$sig = "RVS"
+paths_down_btm = unique(c(mvs.down_paths$set.name[1:n], all.down_paths$set.name[1:n]))
+
+shared_paths_down = rbind(mvs.down_paths[mvs.down_paths$set.name %in% paths_down_btm,], all.down_paths[all.down_paths$set.name %in% paths_down_btm,])
+shared_paths_down$p_plot = -log10(shared_paths_down$p.adj)
+shared_paths_down$dir = "down"
+
+shared_paths_up = rbind(mvs.up_paths[mvs.up_paths$set.name %in% paths_up_btm,], all.up_paths[all.up_paths$set.name %in% paths_up_btm,])
+shared_paths_up$p_plot = -log10(shared_paths_up$p.adj)
+shared_paths_up$dir = "up"
+
+shared_paths = rbind(shared_paths_up, shared_paths_down)
+
+
+shared_paths$percent = shared_paths$relevant.genes/shared_paths$filtered.size
+
+shared_paths_keep_a = shared_paths[,c("sig","set.name","p_plot")]
+shared_paths_keep_b = shared_paths[,c("sig","set.name","percent")]
+
+shared_paths_keep_a = reshape(shared_paths_keep_a, idvar = "set.name", timevar = "sig", direction = "wide") %>% as.data.frame()
+# shared_paths_keep_a[is.na(shared_paths_keep_a)] = 0
+rownames(shared_paths_keep_a) = shared_paths_keep_a$set.name
+shared_paths_keep_a$set.name = NULL
+shared_paths_keep_b = reshape(shared_paths_keep_b, idvar = "set.name", timevar = "sig", direction = "wide")
+# shared_paths_keep_b[is.na(shared_paths_keep_b)] = 0
+rownames(shared_paths_keep_b) = shared_paths_keep_b$set.name
+shared_paths_keep_b$set.name = NULL
+
+extremes = shared_paths_keep_a
+extremes[is.na(extremes)] = 0
+min_val = min(extremes)
+max_val = max(extremes)
+
+col_fun = circlize::colorRamp2(c(seq(min_val,0, length = 6), seq(0, max_val, length = 6)), dichromat_pal("DarkRedtoBlue.12")(12))
+```
+
+```{r}
+library(colorspace)
+graph_ps = shared_paths[,c("sig","set.name","p_plot", "dir")]
+graph_ps$label = ""
+graph_ps$sig = ifelse(graph_ps$sig == "MVS", "MVS (Human)", "VRS (NHP)")
+# graph_ps[is.na(graph_ps)] = 0
+# graph_ps$set = rownames(graph_ps)
+graph_ps$dir = factor(graph_ps$dir, levels = c("up","down"))
+test = ggplot(graph_ps, aes(x = sig, y = set.name, fill = p_plot)) +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  scale_fill_distiller(palette = "Spectral") +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + 
+  ggtitle("Top BTM Pathways per Gene set") + facet_wrap(~dir, scales = "free", nrow=2)+ 
+  scale_fill_continuous_divergingx(palette = 'RdBu', mid = 0, l1 = 2,l3 = 2,p1 = .8, p2 = .6, p3 = .8, p4 = .6, rev = T, h1 = 3)
+  # scale_y_continuous(expand = c(0, 0), breaks = unique(graph_ps$p_plot))
+test + coord_flip()
+# ggsave(test, filename = "~/Downloads/test_graph_btms2.png", width = 8, height = 7)
+```
+
+```{r}
+library(colorspace)
+graph_ps = shared_paths[,c("sig","set.name","p_plot", "dir")]
+graph_ps$label = ""
+graph_ps$sig = ifelse(graph_ps$sig == "MVS", "MVS\n(Human)", "VRS\n(NHP)")
+# graph_ps[is.na(graph_ps)] = 0
+# graph_ps$set = rownames(graph_ps)
+graph_ps$dir = factor(graph_ps$dir, levels = c("up","down"))
+graph_ps$set.name = factor(graph_ps$set.name, levels = unique(graph_ps$set.name))
+graph_ps$direction = ifelse(graph_ps$dir == "up","UP Genes", "DOWN Genes")
+graph_ps$direction = factor(graph_ps$direction, levels = c("UP Genes", "DOWN Genes"))
+test = ggplot(graph_ps, aes(x = sig, y = set.name, fill = p_plot)) +labs(fill="-log10\n(p.adj)") +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  scale_fill_distiller(palette = "Purples", trans = "reverse") +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("") + 
+  ggtitle("Top Enriched BTMs") + theme(text = element_text(size = 18)) + facet_wrap(~direction, nrow = 2, scales = "free_y")
+  # scale_y_continuous(expand = c(0, 0), breaks = unique(graph_ps$p_plot))
+test + coord_flip()
+test
+ggsave(test, filename = paste0(fig3_path,"Fig3K_BTMS_sig.png"), width = 8, height = 7)
+```
+
+```{r}
+graph_ps_up = graph_ps[graph_ps$direction == "UP Genes",]
+graph_ps_down = graph_ps[graph_ps$direction == "DOWN Genes",]
+
+up_plot = ggplot(graph_ps_up, aes(x = sig, y = set.name, fill = p_plot)) +labs(fill="-log10(p.adj)") +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("") + 
+  ggtitle("Top Enriched BTMs") + theme(text = element_text(size = 18)) + facet_grid(rows = vars(direction), scales = "free")  + scale_fill_continuous_divergingx(palette = 'RdBu', rev = T) 
+down_plot = ggplot(graph_ps_down, aes(x = sig, y = set.name, fill = p_plot)) +labs(fill="-log10(p.adj)") +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("") + theme(text = element_text(size = 18)) + facet_grid(rows = vars(direction), scales = "free")  + scale_fill_continuous_divergingx(palette = 'RdBu', rev = F)
+
+library(patchwork)
+up_plot / down_plot
+plot_grid(up_plot, down_plot, ncol = 1, align = "v")
+```
+
+
+###

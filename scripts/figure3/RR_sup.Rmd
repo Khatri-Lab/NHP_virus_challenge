@@ -1,0 +1,546 @@
+---
+title: "Untitled"
+output: html_document
+---
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(magrittr)
+library(ComplexHeatmap)
+library(ggplot2)
+
+set.seed(4)
+```
+
+```{r setup, include=FALSE}
+dat = readRDS("/Users/kalani/Downloads/gse.nhp_signature2.rds")
+pheno = dat$pheno
+unique(pheno$pathogen)
+table(pheno$pathogen)
+fig_path = "/Users/kalani/Desktop/Stanford_Classes/Projects/KR04_NHP_final2/RR_figs/sfigures/"
+source(paste0(path,"scripts/run_pooled_aurocs.R"))
+```
+
+```{r}
+pheno$virus_family = ifelse(is.na(pheno$pathogen), pheno$pathogen, "Co-infection")
+pheno$virus_family = ifelse(pheno$pathogen == "RSV", "Paramyxoviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Adenovirus", "Adenoviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Coxsackievirus", "Picornaviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Influenza", "Orthomyxoviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Rhinovirus", "Picornaviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Parainfluenza", "Paramyxoviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Rotavirus", "Reoviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "CMV", "Herpesviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "HMPV", "Pneumoviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Varicella", "Alphaherpesvirinae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "HSV", "Herpesviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "BKV", "Polyomaviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Coronavirus", "Coronaviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$pathogen == "Enterovirus", "Picornaviridae",pheno$virus_family)
+pheno$virus_family = ifelse(pheno$severity == 0, "Healthy", pheno$virus_family)
+dat$pheno = pheno
+```
+
+```{r}
+removeSamples <- function(dataset,samples,pheno=TRUE,genes=TRUE,expr=TRUE,class=TRUE,count=F,other.elements=NULL){
+  if(length(samples) == 0){
+    warning("No samples were removed")
+    return(dataset)
+  }
+  
+  checkNames = c("pheno","genes","expr","class")[c(pheno,genes,expr,class)] %in% names(dataset)
+  if(any(checkNames==FALSE)){
+    missing = c("pheno","genes","expr","class")[c(pheno,genes,expr,class)][!checkNames]
+    if(length(missing)==1){err=paste0("Missing ",missing,".")}
+    else if(length(missing)==2){err=paste0("Missing ",missing[1]," and ",missing[2],".")}
+    else{err=paste0("Missing ",paste(missing[-c(length(missing))],collapse = ", "),", and ",missing[length(missing)],".")}
+    stop(err)
+  }
+  
+  if(pheno){dataset$pheno = dataset$pheno[-samples,,drop=F]}
+  if(genes){dataset$genes = dataset$genes[,-samples,drop=F]}
+  if(expr){dataset$expr = dataset$expr[,-samples,drop=F]}
+  if(count){dataset$count = dataset$count[,-samples,drop=F]}
+  if(class){
+    dataset$class = as.numeric(dataset$class)
+    dataset$class = dataset$class[-c(samples)]
+  }
+  if(!is.null(other.elements)){
+    for(element in other.elements){
+      if(!(element %in% names(dataset))){stop(sprintf("%s is not present in this dataset",element))}
+      dataset[[element]] = dataset[[element]][-c(samples)]
+    }
+  }
+  
+  return(dataset)
+}
+
+makePooledROCplot2 <- function(DatasetList,pos.genes,neg.genes,score.overwrite.col=NULL,points=1000,
+                               weighting=TRUE,title=NULL,size=14,colors=NULL,rounding=3,smoothed=FALSE,rocmethod="pROC",
+                               auc1.thresh=0.99,bootReps=1000,minPoints=5,numCores=1,method="random",show.spread=TRUE,show.summary=TRUE)
+{
+  require(data.table)
+  require(MetaIntegrator)
+  
+  
+  #replace pos/neg genes if score.overwrite.col exists
+  if(!is.null(score.overwrite.col)){
+    pos.genes = "PLACEHOLDER"
+    neg.genes = "PLACEHOLDER"
+  }
+  
+  #fix weird bug with empty string
+  pos.genes = pos.genes[pos.genes != ""]
+  neg.genes = neg.genes[neg.genes != ""]
+  
+  #check for non-unique values in $formattedName, because this causes a bug
+  names = sapply(DatasetList, function(gse) gse$formattedName)
+  if(length(names) != length(unique(names))){
+    warning("Non-unique values found in $formattedName, duplicate names will be adjusted.")
+    names = make.names(names,unique=T)
+    for(i in 1:length(names)){
+      DatasetList[[i]]$formattedName = names[i]
+    }
+  }
+  
+  DatasetList.new = lapply(DatasetList, function(dataset){
+    if(is.null(score.overwrite.col)){
+      dataset$scores = getGeneScores(dataset$genes,pos.genes,neg.genes)
+    }else{
+      dataset$scores = dataset$pheno[[score.overwrite.col]]
+    }
+    dataset$ROCinfo = calculateROC(as.numeric(as.character(dataset$class)), as.numeric(dataset$scores))
+    if(rocmethod=="MetaIntegrator"){
+      rocs=calculateROC(as.numeric(as.character(dataset$class)), as.numeric(dataset$scores))
+      dataset$rocs=c(rocs$auc,rocs$auc.CI)}
+    if(rocmethod=="pROC"){
+      library(pROC)
+      rocs=as.numeric(ci(as.numeric(as.character(dataset$class)), as.numeric(dataset$scores)))
+      dataset$rocs=rocs[c(2,1,3)]
+    }
+    return(dataset)
+  })
+  
+  pooledStats = do.call(rbind,lapply(DatasetList.new, function(dataset){
+    auc = dataset$rocs[1]
+    auc.lo = max(dataset$rocs[2],0)
+    auc.up = min(dataset$rocs[3],1)
+    auc.se = .aucSE(auc,dataset$class)
+    return(data.frame(name=dataset$formattedName,AUC=auc,CI.lower=auc.lo,CI.upper=auc.up,AUC.SE=auc.se,N=length(dataset$class)))
+  }))
+  
+  legendText = sprintf("%s AUC=%s (95%% CI %s-%s)",pooledStats$name,round(pooledStats$AUC,rounding),round(pooledStats$CI.lower,rounding),round(pooledStats$CI.upper,rounding))
+  legendTextDt=data.frame(dataset=pooledStats$name,AUC=round(pooledStats$AUC,rounding),AUC.lower=round(pooledStats$CI.lower,rounding),AUC.upper=round(pooledStats$CI.upper,rounding))
+  
+  curves = data.table(do.call(rbind,lapply(DatasetList.new, function(dataset){
+    interp = approx(dataset$ROCinfo$roc$x,dataset$ROCinfo$roc$y,n=points)
+    new.curve = data.frame(name = rep(dataset$formattedName,points),N = length(dataset$class), FPR = interp$x, TPR = interp$y)
+    new.curve = new.curve[points:1,]
+    return(new.curve)
+  })))
+  
+  if(weighting){
+    roc.summ = curves[,.(TPR=sum(TPR*(pooledStats$N/sum(pooledStats$N)))),by=FPR]
+  }else{
+    roc.summ = curves[,.(TPR=mean(TPR)),by=FPR]
+  }
+  
+  #weighted standard deviation w/ unbiased estimator (see https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Weighted_sample_variance)
+  #this is with reliability weights (frequency would mean treating every TPR/FPR value as if it were repeated N times)
+  weights = pooledStats$N/sum(pooledStats$N)
+  v1 = sum(weights) #should sum to 1
+  v2 = sum(weights^2)
+  denom = v1-(v2/v1)
+  roc.SD = curves[,.(TPR.SD=sqrt(sum(weights*(TPR-(sum(TPR*(weights/v1))))^2)/denom)),by=FPR]$TPR.SD
+  roc.upper = data.frame(FPR = roc.summ$FPR,TPR = roc.summ$TPR + roc.SD)
+  roc.lower = data.frame(FPR = roc.summ$FPR,TPR = roc.summ$TPR - roc.SD)
+  roc.upper[roc.upper>1]=1
+  roc.lower[roc.lower<0]=0
+  
+  # Alterative measures of spread/uncertainty/etc.
+  #
+  # standard error
+  # roc.SE = curves[,.(TPR.SE=sd(TPR)/sqrt(mean(pooledStats$N))),by=FPR]$TPR.SE
+  #
+  # calculating standard error using number of datasets
+  # roc.SE = curves[,.(TPR.SE=sd(TPR)/sqrt(length(DatasetList))),by=FPR]$TPR.SE
+  #
+  # calculating standard error using total sample size
+  # roc.SE = curves[,.(TPR.SE=sd(TPR)/sqrt(sum(pooledStats$N))),by=FPR]$TPR.SE
+  #
+  # 95% confidence interval
+  # roc.upper = data.frame(FPR = roc.summ$FPR,TPR = roc.summ$TPR + (roc.SE*1.96))
+  # roc.lower = data.frame(FPR = roc.summ$FPR,TPR = roc.summ$TPR - (roc.SE*1.96))
+  #
+  # standard deviation
+  # roc.SD = curves[,.(TPR.SE=sd(TPR)),by=FPR]$TPR.SE
+  # roc.upper = data.frame(FPR = roc.summ$FPR,TPR = roc.summ$TPR + roc.SD)
+  # roc.lower = data.frame(FPR = roc.summ$FPR,TPR = roc.summ$TPR - roc.SD)
+  
+  auc.summ = aucROCframe(data.frame(roc.summ))
+  #calculate pooled standard error (https://stats.stackexchange.com/questions/55999/is-it-possible-to-find-the-combined-standard-deviation)
+  auc.se = sqrt(sum((pooledStats$N-1)*pooledStats$AUC.SE^2+pooledStats$N*(pooledStats$AUC-as.vector(auc.summ))^2)/(sum(pooledStats$N)-1))
+  auc.lower = max(0,auc.summ - (auc.se * 1.96))
+  auc.upper = min(1,auc.summ + (auc.se * 1.96))
+  
+  if(smoothed){
+    require(rmeta)
+    #calculated weighted standard deviation of AUCs (an alternative could be to just calculate the AUCs of the current roc.lower and roc.upper)
+    AUC.wSD = sqrt(sum(weights*(pooledStats$AUC-(sum(pooledStats$AUC*(weights/v1))))^2)/denom)
+    auc.lower2 = max(0,auc.summ - AUC.wSD)
+    auc.upper2 = min(1,auc.summ + AUC.wSD)
+    #get beta parameter for the smoothed ROC curve
+    ROC.stats = getMetaROCStats.new(DatasetList,pos.genes,neg.genes,score.overwrite.col,numCores=numCores,minPoints=minPoints,bootReps=bootReps,auc1.thresh=auc1.thresh)
+    ROC.stats = na.omit(ROC.stats)
+    if(nrow(ROC.stats)>1){
+      beta <- with(ROC.stats, meta.summaries(d=tstar_beta, se=SE_beta*sqrt(N), method=method))
+    } else {
+      beta <- with(ROC.stats, data.frame(summary=tstar_beta, se.summary=SE_beta))
+    }
+    
+    alpha.summ = .getSummROCalpha(auc.summ,beta$summary)
+    alpha.lower = .getSummROCalpha(auc.lower2,beta$summary)
+    alpha.upper = .getSummROCalpha(auc.upper2,beta$summary)
+    
+    roc.summ <- newMetaROC(alpha=alpha.summ, beta=beta$summary)
+    roc.lower <- newMetaROC(alpha=alpha.lower, beta=beta$summary)
+    roc.upper <- newMetaROC(alpha=alpha.upper, beta=beta$summary)
+  }
+  
+  #add points at (0,0) and (1,1)
+  roc.summ = rbind(list(1,1),roc.summ,list(0,0))
+  roc.lower = rbind(list(1,1),roc.lower,list(0,0))
+  roc.upper = rbind(list(1,1),roc.upper,list(0,0))
+  
+  plotData = do.call(rbind,lapply(DatasetList.new, function(dataset){
+    return(data.frame(name=dataset$formattedName,FPR=dataset$ROCinfo$roc$x,TPR=dataset$ROCinfo$roc$y))
+  }))
+  if(show.summary){
+    plotData = rbind(plotData,data.frame(name="Summary",FPR=roc.summ$FPR,TPR=roc.summ$TPR))
+    legendText = c(legendText,sprintf("Summary AUC=%s (95%% CI %s-%s)",round(auc.summ,rounding),round(auc.lower,rounding),round(auc.upper,rounding)))
+    legendTextDt=rbind(legendTextDt,data.frame(dataset="Summary",AUC=round(auc.summ,rounding),AUC.lower=round(auc.lower,rounding),AUC.upper=round(auc.upper,rounding)))
+  }
+  
+  #force color to dark grey on palette
+  hues <- seq(15, 375, length=length(DatasetList.new)+1)
+  dataPal = c(hcl(h=hues, l=65, c=100)[1:length(DatasetList.new)],"grey25")
+  
+  if(!is.null(colors) && length(colors) == length(DatasetList.new)){
+    dataPal = colors
+  }else if(!is.null(colors) && length(colors) != length(DatasetList.new)){
+    warning("The number of colors does not match the number of datasets and will be ignored")
+  }
+  
+  if(!show.spread){
+    roc.lower$FPR = roc.summ$FPR
+    roc.lower$TPR = roc.summ$TPR
+    roc.upper$FPR = roc.summ$FPR
+    roc.upper$TPR = roc.summ$TPR
+  }
+  
+  rocCI=cbind(lower=roc.lower, upper=roc.upper)
+  
+  # p=ggplot(plotData, aes(x = FPR, y = TPR)) +
+  #   #Have this first to put it on bottom
+  #   suppressWarnings(geom_ribbon(data=cbind(lower=roc.lower, upper=roc.upper), 
+  #                                aes(x= lower.FPR, y=lower.TPR, ymin=lower.TPR, ymax=upper.TPR), fill="gray75")) +
+  #   geom_line(aes(colour = name)) +
+  #   geom_segment(x=0, y=0, xend=1, yend=1, linetype=5, color="grey20") +
+  #   scale_x_continuous("False Positive Rate (1-Specificity)",breaks=seq(0,1,0.2)) +
+  #   scale_y_continuous("True Positive Rate (Sensitivity)",breaks=seq(0,1,0.2)) +
+  #   scale_color_manual(values=dataPal, labels = legendText) +
+  #   ggtitle(title) +
+  #   theme_bw() +
+  #   theme(text = element_text(size=size)) +
+  #   theme(plot.title = element_text(size=size), 
+  #         axis.title.x = element_text(size=size),
+  #         axis.title.y = element_text(size=size, angle=90),
+  #         legend.justification=c(1,0), 
+  #         legend.position=c(0.999,0.005),
+  #         legend.title = element_blank(),
+  #         legend.key = element_blank(),
+  #         legend.text=element_text(size=size),
+  #         axis.text.x = element_text(size=size),
+  #         axis.text.y = element_text(size=size)) +
+  #   guides(colour=guide_legend(override.aes = list(size=2.8))) +
+  #  if(show.summary){geom_line(data=roc.summ[nrow(roc.summ):1,], aes(x=FPR, y=TPR), size=1.3, color="gray20")}
+  ## If just want to define upper and lower lines without fill:
+  #geom_line(data=roc.upper, aes(x=FPR, y=TPR), size=1.1, linetype=3, color="gray15") +
+  #geom_line(data=roc.lower, aes(x=FPR, y=TPR), size=1.1, linetype=3, color="gray15") 
+  
+  return(list(plotdata=plotData,datasummary=roc.summ,rocCI=rocCI,legendText=legendText,legendTextDt=legendTextDt))
+}
+linesize = 4
+table(pheno$virus_family)
+
+```
+
+
+```{r}
+
+
+.aucSE <- function(auc,class){
+  n.pos = sum(class == 1)
+  n.neg = sum(class == 0)
+  q1 = auc/(2 - auc)
+  q2 = (2 * auc^2)/(1 + auc)
+  se.auc = sqrt((((auc * (1 - auc))+(n.pos - 1)*(q1 - auc^2))+((n.neg - 1)*(q2 - auc^2)))/(n.pos * n.neg))
+  return(se.auc)
+}
+
+aucROCframe <- function(newroc){
+  i <- 2:dim(newroc)[1]
+  auc <- (newroc[i-1, "FPR"] - newroc[i, "FPR"]) %*% (newroc[i-1, "TPR"] + newroc[i, "TPR"])/2
+  return(auc)
+}
+
+```
+
+
+```{r}
+gse=dat
+# sig_path_list = readRDS(paste0(datPath,"sig_path_list",".rds"))
+gse2=gse
+gse2 = removeSamples(gse2,which(!gse2$pheno$virus_family %in% c("Healthy","Adenoviridae")),expr=T,genes = F)
+gse2$class = ifelse(gse2$pheno$virus_family == "Healthy", 0, 1) # makeClassVector(gse2$pheno$severity,1:6)
+gse2$formattedName = "Adenoviridae"
+
+gse3=gse
+gse3 = removeSamples(gse3,which(!gse3$pheno$virus_family %in% c("Healthy","Orthomyxoviridae")),expr=T,genes = F)
+gse3$class = ifelse(gse3$pheno$virus_family == "Healthy", 0, 1) #makeClassVector(gse3$pheno$severity,1:6)
+gse3$formattedName = "Orthomyxoviridae"
+gse3$pheno$VRS = gse3$pheno$all
+
+gse4=gse
+gse4 = removeSamples(gse4,which(!gse4$pheno$virus_family %in% c("Healthy","Paramyxoviridae")),expr=T,genes = F)
+gse4$class = ifelse(gse4$pheno$virus_family == "Healthy", 0, 1) #makeClassVector(gse4$pheno$severity,1:6)
+gse4$formattedName = "Paramyxoviridae"
+
+gse5=gse
+gse5 = removeSamples(gse5,which(!gse5$pheno$virus_family %in% c("Healthy","Picornaviridae")),expr=T,genes = F)
+gse5$class = ifelse(gse5$pheno$virus_family == "Healthy", 0, 1) #makeClassVector(gse5$pheno$severity,1:6)
+gse5$formattedName = "Picornaviridae"
+
+gse6=gse
+gse6 = removeSamples(gse6,which(!gse6$pheno$virus_family %in% c("Healthy","Co-infection")),expr=T,genes = F)
+gse6$class = ifelse(gse6$pheno$virus_family == "Healthy", 0, 1) #makeClassVector(gse6$pheno$severity,1:6)
+gse6$formattedName = "Co-infection"
+
+
+gse7 = readRDS("~/Downloads/v2_03_denv_obj_coconut_B.rds")
+gse7$pheno$virus_family = ifelse(gse7$pheno$virus %in% c("Healthy_CTRL","Convalescent_DENV"), "Healthy", "Flaviviridae")
+gse7$class = ifelse(gse7$pheno$virus_family == "Healthy", 0, 1) #makeClassVector(gse6$pheno$severity,1:6)
+gse7$formattedName = "Flaviviridae"
+gse7$class.cntl0.dis1 = NULL
+gse7$pheno$MVS = gse7$pheno$MVS_score
+gse7$pheno$VRS = gse7$pheno$VRS_score
+gse7$expr = gse7$genes
+
+gse8 = readRDS("~/Downloads/v2_02_other_dat.rds")
+gse8 = gse8$originalData$EBOV_PRJNA352396
+gse8$pheno$MVS = gse8$pheno$MVS_score
+gse8$pheno$VRS = gse8$pheno$VRS_score
+gse8$pheno$virus_family = ifelse(gse8$pheno$disease2 =="Convalescent", "Healthy", "Filoviridae")
+gse8$class = ifelse(gse8$pheno$virus_family == "Healthy", 0, 1) 
+gse8$formattedName = "Filoviridae"
+
+
+gse9 = readRDS("~/Downloads/v2_02_other_dat.rds")
+gse9 = gse9$originalData$SARS_inflammatix86
+gse9$pheno$MVS = gse9$pheno$MVS_score
+gse9$pheno$VRS = gse9$pheno$VRS_score
+gse9$pheno$virus_family = ifelse(gse9$pheno$disease2 ==0, "Healthy", "Coronaviridae")
+gse9$class = ifelse(gse9$pheno$virus_family == "Healthy", 0, 1) 
+gse9$formattedName = "Coronaviridae"
+
+shared_cols_a = c("Virus","Infecting_Pathogen","dataset4","dataset5","virus", "disease2","MVS_score","Mod4_score", "VRS_score","class")
+gse10 = readRDS("~/Downloads/v2_02_other_dat.rds")
+gse10a = gse10$originalData$CHIV_PRJNA507472
+gse10b = gse10$originalData$CHIKV_PRJNA390289
+gse10 = gse5
+gse10$pheno = rbind(gse10a$pheno[,shared_cols_a], gse10b$pheno[,shared_cols_a])
+gse10$expr = cbind(gse10a$expr, gse10b$expr)
+gse10$pheno$MVS = gse10$pheno$MVS_score
+gse10$pheno$VRS = gse10$pheno$VRS_score
+gse10$pheno$virus_family = ifelse(gse10$pheno$class ==0, "Healthy", "Alphaviridae")
+gse10$class = ifelse(gse10$pheno$virus_family == "Healthy", 0, 1) 
+gse10$formattedName = "Alphaviridae"
+
+
+sig = "MVS"
+### add ebov, chiv, and denv
+# for(sig in colnames(scores)){
+  
+  rocNHP=makePooledROCplot2(list(gse2,gse3,gse4,gse5,gse6,gse7,gse8, gse9, gse10),score.overwrite.col=sig,smoothed = FALSE, title = "NHP",method = "pROC",show.summary = F)
+  
+  legendText=as.data.table(rocNHP$legendTextDt)
+  legendTextdisplay=sprintf("%s\nAUC=%s (95%% CI %s-%s)",legendText$dataset,round(legendText$AUC,3),round(legendText$AUC.lower,3),round(legendText$AUC.upper,3))
+  
+  p=
+    ggplot(rocNHP$plotdata, aes(x = FPR, y = TPR,color=name)) +
+    geom_line(size=0.5,alpha=1,aes(colour = factor(name,levels=legendText$dataset))) + 
+    geom_segment(x=0, y=0, xend=1, yend=1, linetype=5, color="grey87",size=linesize) +
+    scale_x_continuous("False Positive Rate (1-Specificity)",breaks=seq(0,1,0.2)) +
+    scale_y_continuous("True Positive Rate (Sensitivity)",breaks=seq(0,1,0.2)) +
+    scale_color_manual(values=as.character(c("red","orange","green","blue","purple","brown","pink","yellow","black","grey")),labels = legendTextdisplay)+
+    ggtitle("MVS score classifies patients with viral infections\nfrom healthy controls") +
+    ggtitle(paste0(sig,", pan-viral datasets")) +
+    theme_bw() + 
+    theme(
+      panel.grid.major.x = element_line(color="grey67",size=0.05,linetype = 2),
+      panel.grid.major.y = element_line(color="grey67",size=0.05,linetype = 2),
+      legend.justification=c(1,0),
+      legend.position=c(0.98,0.02),
+      legend.title = element_blank(),
+      legend.key = element_blank(),
+      legend.margin = margin(0.01, 0.01, 0.01, 0.01,unit="line"),
+      legend.text=element_text(size=8),
+      legend.background = element_rect(fill=NA,color=NA),
+      legend.key.width=unit(0.2,"line"),legend.key.height = unit(0.2,"line"),
+    ) +
+    guides(colour=guide_legend(override.aes = list(size=2)))
+  
+  # pdf(file=paste0("~/Downloads/panviral.","test",".roc.pdf"),width = 3,height = 3)
+  # pushViewport(viewport(layout=grid.layout(nrow=100,ncol=100)))
+  # print(p,vp=viewport(layout.pos.row = 2:99, layout.pos.col = 2:99))
+  # dev.off()
+# }
+p
+```
+
+```{R}
+sig = "MVS"
+
+  
+  rocNHP=makePooledROCplot2(list(gse9,gse8,gse7,gse3),score.overwrite.col=sig,smoothed = FALSE, title = "NHP",method = "pROC",show.summary = F)
+  
+  legendText=as.data.table(rocNHP$legendTextDt)
+  legendTextdisplay=sprintf("%s\nAUC=%s (95%% CI %s-%s)",legendText$dataset,round(legendText$AUC,3),round(legendText$AUC.lower,3),round(legendText$AUC.upper,3))
+  
+  p2=
+    ggplot(rocNHP$plotdata, aes(x = FPR, y = TPR,color=name)) +
+    geom_line(size=0.5,alpha=1,aes(colour = factor(name,levels=legendText$dataset))) + 
+    geom_segment(x=0, y=0, xend=1, yend=1, linetype=5, color="grey87",size=linesize) +
+    scale_x_continuous("False Positive Rate (1-Specificity)",breaks=seq(0,1,0.2)) +
+    scale_y_continuous("True Positive Rate (Sensitivity)",breaks=seq(0,1,0.2)) +
+    scale_color_manual(values=as.character(viral_family_colors[c(2,3,4,5)]),labels = legendTextdisplay)+
+    ggtitle("Human Data: Summary ROC curves\nof MVS score by Virus Family") +
+    # ggtitle(paste0(sig,", pan-viral datasets")) +
+    theme_bw() + 
+    theme(
+      panel.grid.major.x = element_line(color="grey67",size=0.05,linetype = 2),
+      panel.grid.major.y = element_line(color="grey67",size=0.05,linetype = 2),
+      legend.justification=c(1,0),
+      legend.position=c(0.98,0.02),
+      legend.title = element_blank(),
+      legend.key = element_blank(),
+      legend.margin = margin(0.01, 0.01, 0.01, 0.01,unit="line"),
+      legend.text=element_text(size=16),
+      legend.background = element_rect(fill=NA,color=NA),
+      legend.key.width=unit(0.2,"line"),legend.key.height = unit(0.2,"line"),
+    ) +
+    guides(colour=guide_legend(override.aes = list(size=2)))+ theme(text = element_text(size = 16)) 
+  
+  # pdf(file=paste0(fig_path,"Sup_2G",".pdf"),width = 3,height = 3)
+  # pushViewport(viewport(layout=grid.layout(nrow=100,ncol=100)))
+  # print(p,vp=viewport(layout.pos.row = 2:99, layout.pos.col = 2:99))
+  # dev.off()
+
+p2
+# ggsave(p2, filename = paste0(fig_path,"Sup_2G_MVS",".pdf"), height = 7, width = 7)
+```
+
+```{R}
+sig = "MVS"
+
+  
+  rocNHP=makePooledROCplot2(list(gse9,gse8,gse7,gse3),score.overwrite.col=sig,smoothed = FALSE, title = "NHP",method = "pROC",show.summary = T)
+  
+  legendText=as.data.table(rocNHP$legendTextDt)
+  legendTextdisplay=sprintf("%s\nAUC=%s (95%% CI %s-%s)",legendText$dataset,round(legendText$AUC,3),round(legendText$AUC.lower,3),round(legendText$AUC.upper,3))
+  
+  p2=
+    ggplot(rocNHP$plotdata, aes(x = FPR, y = TPR,color=name)) +
+    geom_line(size=0.5,alpha=1,aes(colour = factor(name,levels=legendText$dataset))) + 
+    geom_segment(x=0, y=0, xend=1, yend=1, linetype=5, color="grey87",size=linesize) +
+    scale_x_continuous("False Positive Rate (1-Specificity)",breaks=seq(0,1,0.2)) +
+    scale_y_continuous("True Positive Rate (Sensitivity)",breaks=seq(0,1,0.2)) +
+    scale_color_manual(values=as.character(c(viral_family_colors[c(2,3,4,5)], "darkgrey")),labels = legendTextdisplay)+
+    ggtitle("Human Data: Summary ROC curves\nof MVS score by Virus Family") +
+    # ggtitle(paste0(sig,", pan-viral datasets")) +
+    theme_bw() + 
+    theme(
+      panel.grid.major.x = element_line(color="grey67",size=0.05,linetype = 5),
+      panel.grid.major.y = element_line(color="grey67",size=0.05,linetype = 5),
+      legend.justification=c(1,0),
+      legend.position=c(0.98,0.02),
+      legend.title = element_blank(),
+      legend.key = element_blank(),
+      legend.margin = margin(0.01, 0.01, 0.01, 0.01,unit="line"),
+      legend.text=element_text(size=16),
+      legend.background = element_rect(fill=NA,color=NA),
+      legend.key.width=unit(1,"line"),legend.key.height = unit(0.2,"line"),
+    ) +
+    guides(colour=guide_legend(override.aes = list(size=2)))+ theme(text = element_text(size = 16)) 
+  
+  # pdf(file=paste0(fig_path,"Sup_2G",".pdf"),width = 3,height = 3)
+  # pushViewport(viewport(layout=grid.layout(nrow=100,ncol=100)))
+  # print(p,vp=viewport(layout.pos.row = 2:99, layout.pos.col = 2:99))
+  # dev.off()
+
+p2
+ggsave(p2, filename = paste0(fig_path,"Sup_2G_MVS",".pdf"), height = 7, width = 7)
+```
+
+
+
+```{R}
+sig = "VRS"
+  
+rocNHP=makePooledROCplot2(list(gse9,gse8,gse7,gse3),score.overwrite.col=sig,smoothed = FALSE, title = "NHP",method = "pROC",show.summary = T)
+  
+  legendText=as.data.table(rocNHP$legendTextDt)
+  legendTextdisplay=sprintf("%s\nAUC=%s (95%% CI %s-%s)",legendText$dataset,round(legendText$AUC,3),round(legendText$AUC.lower,3),round(legendText$AUC.upper,3))
+  
+  p3=
+    ggplot(rocNHP$plotdata, aes(x = FPR, y = TPR,color=name)) +
+    geom_line(size=0.5,alpha=1,aes(colour = factor(name,levels=legendText$dataset))) + 
+    geom_segment(x=0, y=0, xend=1, yend=1, linetype=5, color="grey87",size=linesize) +
+    scale_x_continuous("False Positive Rate (1-Specificity)",breaks=seq(0,1,0.2)) +
+    scale_y_continuous("True Positive Rate (Sensitivity)",breaks=seq(0,1,0.2)) +
+    scale_color_manual(values=as.character(c(viral_family_colors[c(2,3,4,5)], "darkgrey")),labels = legendTextdisplay)+
+    ggtitle("Human Data: Summary ROC curves\nof VRS score by Virus Family") +
+    # ggtitle(paste0(sig,", pan-viral datasets")) +
+    theme_bw() + 
+    theme(
+      panel.grid.major.x = element_line(color="grey67",size=0.05,linetype = 5),
+      panel.grid.major.y = element_line(color="grey67",size=0.05,linetype = 5),
+      legend.justification=c(1,0),
+      legend.position=c(0.98,0.02),
+      legend.title = element_blank(),
+      legend.key = element_blank(),
+      legend.margin = margin(0.01, 0.01, 0.01, 0.01,unit="line"),
+      legend.text=element_text(size=16),
+      legend.background = element_rect(fill=NA,color=NA),
+      legend.key.width=unit(1,"line"),legend.key.height = unit(0.2,"line"),
+    ) +
+    guides(colour=guide_legend(override.aes = list(size=2)))+ theme(text = element_text(size = 16)) 
+  
+  # pdf(file=paste0(fig_path,"Sup_2G",".pdf"),width = 3,height = 3)
+  # pushViewport(viewport(layout=grid.layout(nrow=100,ncol=100)))
+  # print(p,vp=viewport(layout.pos.row = 2:99, layout.pos.col = 2:99))
+  # dev.off()
+
+p3
+ggsave(p3, filename = paste0(fig_path,"Sup_2G_VRS",".pdf"), height = 7, width = 7)
+```
+
+
+##

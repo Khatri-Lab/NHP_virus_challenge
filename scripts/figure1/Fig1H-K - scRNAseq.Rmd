@@ -1,0 +1,318 @@
+---
+title: "Figure 1H-K"
+output: html_document
+---
+
+```{r, message=FALSE}
+library(Seurat)
+library(harmony)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(rcartocolor)
+library(RColorBrewer)
+library(NatParksPalettes)
+library(viridis)
+library(babelgene)
+library(ComplexHeatmap)
+set.seed(4)
+```
+
+paths
+```{r}
+path = "" # add path
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/single-cell-scripts.R"))
+fig_path = paste0(path,"figures/")
+fig1_path = paste0(fig_path, "Figure1/")
+```
+
+
+## generating score
+```{r}
+seuObj = readRDS(paste0(datPath,"seu_03.rds"))
+seuObj$leiden_lab_group_2 = ifelse(seuObj$leiden_lab_group_2 == "Th", "CD4 T", seuObj$leiden_lab_group_2)
+seuObj$leiden_lab_group_2 = ifelse(seuObj$leiden_lab_group_2 == "Tc", "CD8 T", seuObj$leiden_lab_group_2)
+
+# convert human genes to rhesus homologus
+mvs.up = orthologs(genes = mvs.up, species = "rhesus macaque")$symbol
+mvs.up = mvs.up[!is.na(mvs.up)]
+
+mvs.down = orthologs(genes = mvs.down, species = "rhesus macaque")$symbol
+mvs.down = mvs.down[!is.na(mvs.down)]
+
+Mod1 = orthologs(genes = Mod1, species = "rhesus macaque")$symbol
+Mod1 = Mod1[!is.na(Mod1)]
+
+Mod2 = orthologs(genes = Mod2, species = "rhesus macaque")$symbol
+Mod2 = Mod2[!is.na(Mod2)]
+
+Mod3 = orthologs(genes = Mod3, species = "rhesus macaque")$symbol
+Mod3 = Mod3[!is.na(Mod3)]
+
+Mod4 = orthologs(genes = Mod4, species = "rhesus macaque")$symbol
+Mod4 = Mod4[!is.na(Mod4)]
+
+# calculate MVS score
+sum(c(mvs.up, mvs.down) %in% rownames(seuObj@assays$RNA@data))
+MVSscore = getGeneScores(seuObj@assays$RNA@data, pos = mvs.up,neg = mvs.down)
+seuObj@meta.data$MVS_Score = MVSscore
+seuObj@meta.data$MVS_Score = as.numeric(seuObj@meta.data$MVS_Score)
+seuObj@meta.data$id = paste0(seuObj@meta.data$animal,"_",seuObj@meta.data$DPIc,"_",seuObj@meta.data$frz_status)
+seuObj@meta.data$MVS_Score_scale = scale(seuObj@meta.data$MVS_Score)
+
+## mod1
+Mod1score = getGeneScores(seuObj@assays$RNA@data, pos = Mod1, neg= "")
+seuObj@meta.data$Mod1_Score = Mod1score
+seuObj@meta.data$Mod1_Score = as.numeric(seuObj@meta.data$Mod1_Score)
+seuObj@meta.data$Mod1_Score_scale = scale(seuObj@meta.data$Mod1_Score)
+
+### mod2
+Mod2score = getGeneScores(seuObj@assays$RNA@data, pos = Mod2, neg= "")
+seuObj@meta.data$Mod2_Score = Mod2score
+seuObj@meta.data$Mod2_Score = as.numeric(seuObj@meta.data$Mod2_Score)
+seuObj@meta.data$Mod2_Score_scale = scale(seuObj@meta.data$Mod2_Score)
+
+### mod3
+Mod3score = getGeneScores(seuObj@assays$RNA@data, pos = Mod3, neg= "")
+seuObj@meta.data$Mod3_Score = Mod3score
+seuObj@meta.data$Mod3_Score = as.numeric(seuObj@meta.data$Mod3_Score)
+seuObj@meta.data$Mod3_Score_scale = scale(seuObj@meta.data$Mod3_Score)
+
+### mod4
+Mod4score = getGeneScores(seuObj@assays$RNA@data, pos = Mod4, neg= "")
+seuObj@meta.data$Mod4_Score = Mod4score
+seuObj@meta.data$Mod4_Score = as.numeric(seuObj@meta.data$Mod4_Score)
+seuObj@meta.data$Mod4_Score_scale = scale(seuObj@meta.data$Mod4_Score)
+```
+
+## counts for text
+```{r}
+ncol(seuObj) # 56929 cells
+length(unique(seuObj$animal)) #17 animals
+ani = seuObj@meta.data[,c("animal","DPIc")] %>% unique()
+table(ani$DPIc)
+```
+
+
+```{r FIGURE A}
+day_cols = c("#fcfdbf", "#feb078", "#f1605d", "#b73779", "#721f81", "#2c115f", "#000004")
+names(day_cols) = unique(seuObj$DPIc)
+
+day_cols2 = c("#febb81", "#f8765c", "#d3436e", "#982d80", "#5f187f", "#221150", "#000004")
+names(day_cols2) = unique(seuObj$DPIc)
+
+plot_days = DimPlot(seuObj, reduction = "umap", group.by = "DPIc", shuffle = TRUE) + xlab("UMAP1") + ylab("UMAP2") 
+
+plot_days2 = plot_days + scale_color_manual(values = day_cols2) + theme(text = element_text(size = 20))  +
+  theme(legend.key.size = unit(5, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.title = element_text(size=14), #change legend title font size
+        legend.text = element_text(size=20))+ guides(color = guide_legend(override.aes = list(size = 4)))+ ggtitle("Days Post-Infection (DPI)") 
+plot_days2
+plot_days3 = plot_days2 + ggtitle("")
+ggsave(plot_days3, filename = paste0(fig1_path, "Fig_1I_day",".png"), height = 5, width =5)
+
+plot_days2_nolegend = plot_days2 + theme(legend.position = "None")
+plot_days2_nolegend
+ggsave(plot_days2_nolegend, filename = paste0(fig1_path, "Fig_1Ia_day",".png"), height = 6, width =6.5)
+```
+
+```{r}
+celltype_levels = c("B","Plasmablast", "CD4 T","CD8 T","NK","Mono/DC","Neut","Platelet")
+celltype_cols = carto_pal(12, "Prism")[c(11,1:5,6:8)]
+names(celltype_cols) = celltype_levels
+## cell types
+seuObj@meta.data$leiden_lab_group_2 = factor(seuObj@meta.data$leiden_lab_group_2, levels = celltype_levels)
+plot_cells = DimPlot(seuObj, reduction = "umap", group.by = "leiden_lab_group_2", shuffle = "TRUE") + xlab("UMAP1") + ylab("UMAP2")
+
+cell_plot = DimPlot(seuObj, reduction = "umap", group.by = "leiden_lab_group_2", shuffle = TRUE) + scale_color_manual(values = celltype_cols) + ggtitle("Cell Types")+ xlab("UMAP1") + ylab("UMAP2")
+cell_plot
+
+
+cell_plot = DimPlot(seuObj, reduction = "umap",  group.by = "leiden_lab_group_2", shuffle = TRUE) + scale_color_manual(values = celltype_cols) + xlab("UMAP1") + ylab("UMAP2") + theme(text = element_text(size = 20))   #label = TRUE,,label.size = 7, repel = TRUE
+cell_plot2 = cell_plot+ theme(text = element_text(size = 20)) +
+  theme(legend.key.size = unit(5, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.title = element_text(size=14), #change legend title font size
+        legend.text = element_text(size=20))+ guides(color = guide_legend(override.aes = list(size = 4)))+ ggtitle("Cell Types")
+cell_plot2
+cell_plot3 = cell_plot2 + ggtitle("")
+ggsave(cell_plot3, filename = paste0(fig1_path, "Fig_1H_celltype",".png"), height = 5, width =5.5)
+
+cell_plot2_nolegend = cell_plot2 + theme(legend.position = "None")
+cell_plot2_nolegend
+ggsave(cell_plot2_nolegend, filename = paste0(fig1_path, "Fig_1Ha_celltype",".png"), height = 6, width =6.5)
+```
+
+```{r}
+## MVS score
+sum(rownames(seuObj@meta.data) == names(MVSscore)) == length(MVSscore)
+seuObj@meta.data$MVS_Score_scale = scale(seuObj@meta.data$MVS_Score)
+mvs_plot = FeaturePlot(seuObj, features = "MVS_Score_scale") + scale_colour_gradientn(colors = scales::dichromat_pal("DarkRedtoBlue.12")(12)[c(1,4,7,9,12)], breaks = c(min(seuObj@meta.data$MVS_Score_scale), max(seuObj@meta.data$MVS_Score_scale)), labels = c("low","high")) + ggtitle("MVS Score") + xlab("UMAP1") + ylab("UMAP2")+ theme(text = element_text(size = 20)) 
+mvs_plot
+
+mvs_plot2 = mvs_plot + theme(text = element_text(size = 20)) +
+  theme(legend.key.size = unit(2, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(.6, 'cm'), #change legend key width
+        legend.title = element_text(size=14), #change legend title font size
+        legend.text = element_text(size=20))
+mvs_plot2 
+mvs_plot3 = mvs_plot2 + ggtitle("")
+ggsave(mvs_plot3, filename = paste0(fig1_path, "Fig_1J_MVS",".png"), height = 5, width =5)
+
+mvs_plot2_nolegend = mvs_plot2 + theme(legend.position = "None")
+mvs_plot2_nolegend
+ggsave(mvs_plot2_nolegend, filename = paste0(fig1_path, "Fig_1Ja_MVS",".png"), height = 6, width =6.5)
+```
+
+
+
+get cell counts and proportions 
+```{r}
+seuObj$time_cat = ifelse(seuObj$DPIc %in% c(6,7,8), "T3", "T2")
+seuObj$time_cat = ifelse(seuObj$DPIc == 0, "T0", seuObj$time_cat)
+
+pheno = seuObj@meta.data
+pheno$ani_dpic = paste0(pheno$animal,"_",pheno$DPIc)
+
+check = pheno[,c("animal","DPIc")] %>% unique()
+table(check$DPIc)
+check2 = pheno[,c("frz_status","DPIc","animal")] %>% unique()
+table(check2$DPIc,check2$frz_status)
+table(pheno$DPIc,pheno$frz_status)
+
+## all stats by animal_day
+# detach("package:plyr", unload=TRUE) 
+pheno_all = pheno %>%
+  group_by(DPIc, animal) %>%
+  mutate(n_group = n(), group_MVS_avg = mean(MVS_Score),group_Mod1_avg = mean(Mod1_Score),group_Mod2_avg = mean(Mod2_Score),group_Mod3_avg = mean(Mod3_Score),group_Mod4_avg = mean(Mod4_Score)) %>% ungroup() %>%
+  group_by(DPIc, animal,n_group,leiden_lab_group_2, group_MVS_avg,group_Mod1_avg,group_Mod2_avg,group_Mod3_avg,group_Mod4_avg) %>%
+  mutate(cell_MVS_avg = mean(MVS_Score),cell_Mod1_avg = mean(Mod1_Score),cell_Mod2_avg = mean(Mod2_Score),cell_Mod3_avg = mean(Mod3_Score),cell_Mod4_avg = mean(Mod4_Score)) %>% ungroup() %>%
+  group_by(DPIc, animal,n_group,leiden_lab_group_2, group_MVS_avg, cell_MVS_avg, group_Mod1_avg,group_Mod2_avg,group_Mod3_avg,group_Mod4_avg, cell_Mod1_avg,cell_Mod2_avg,cell_Mod3_avg,cell_Mod4_avg) %>%
+  summarise(n_cell = n()) %>% mutate(cell_prop = n_cell/n_group)
+```
+
+
+## pseudobulk on all
+```{r}
+get_annot_pseudobulk = function(obj_subset, score_name = "score",upgenes = "", downgenes = "") {
+  obj_subset$ani_dpic = paste0(obj_subset$animal,"_",obj_subset$DPIc)
+  Idents(obj_subset) = "ani_dpic"
+  avg_ani_dpic = AverageExpression(object = obj_subset)
+  avg_ani_dpic2 = avg_ani_dpic$RNA
+  avg_ani_dpic2 = avg_ani_dpic2[rownames(avg_ani_dpic2) %in% c(mvs.up,mvs.down),]
+  score = getGeneScores(avg_ani_dpic2, pos = upgenes,neg = downgenes)
+  psudo_bulk_fresh = unlist(score) %>% as.data.frame()
+  psudo_bulk_fresh$scaled_MVS_Score = scale(psudo_bulk_fresh$.)
+  colnames(psudo_bulk_fresh) = c(paste0("psudo_group_",score_name), paste0("psudo_group_",score_name,"_scaled"))
+  psudo_bulk_fresh = as.data.frame(psudo_bulk_fresh)
+  psudo_bulk_fresh$id = rownames(psudo_bulk_fresh)
+  return(psudo_bulk_fresh)
+}
+
+MVS_anno = get_annot_pseudobulk(seuObj, "MVS", upgenes = mvs.up,downgenes = mvs.down)
+Mod1_anno = get_annot_pseudobulk(seuObj, "Mod1", upgenes = Mod1)
+Mod2_anno = get_annot_pseudobulk(seuObj, "Mod2", upgenes = Mod2)
+Mod3_anno = get_annot_pseudobulk(seuObj, "Mod3", upgenes = Mod3)
+Mod4_anno = get_annot_pseudobulk(seuObj, "Mod4", upgenes = Mod4)
+```
+
+
+
+## on all
+```{r}
+heatmap_fresh = as.data.frame(pheno_all)
+psudo_bulk_fresh = MVS_anno
+heatmap_fresh$id = paste0(heatmap_fresh$animal,"_",heatmap_fresh$DPIc)
+heatmap_fresh = merge(heatmap_fresh, psudo_bulk_fresh, by = "id")
+
+
+heatmap_input = heatmap_fresh %>%
+  group_by(DPIc, leiden_lab_group_2) %>%
+  summarise_at(vars(cell_MVS_avg), list(cell_MVS_avg = mean))
+heatmap_input$cell_MVS_avg = scale(heatmap_input$cell_MVS_avg)
+
+heatmap_input_anno = heatmap_fresh %>%
+  group_by(DPIc) %>%
+  summarise(psudo_group_MVS = mean(psudo_group_MVS))
+heatmap_input_anno$psudo_group_MVS = scale(heatmap_input_anno$psudo_group_MVS)
+heatmap_input_anno = as.data.frame(heatmap_input_anno)
+rownames(heatmap_input_anno) = heatmap_input_anno$DPIc
+heatmap_input_anno$DPIc = NULL
+
+
+heatmap_input = heatmap_input[,c("DPIc","leiden_lab_group_2","cell_MVS_avg")]
+heatmap_input <- dcast(heatmap_input, DPIc~leiden_lab_group_2, value.var = "cell_MVS_avg")
+rownames(heatmap_input) = heatmap_input$DPIc
+heatmap_input$DPIc = NULL
+vals = as.numeric(heatmap_input_anno$psudo_group_MVS)
+col_fun_figure2 = circlize::colorRamp2(seq(min(min(heatmap_input, na.rm = TRUE),vals),max(max(heatmap_input, na.rm = TRUE),vals),length=5), scales::dichromat_pal("DarkRedtoBlue.12")(12)[c(1,4,7,9,12)])
+
+col_fun_figure3 = circlize::colorRamp2(seq(min(min(heatmap_input, na.rm = TRUE)),max(max(heatmap_input, na.rm = TRUE)),length=5), scales::dichromat_pal("DarkRedtoBlue.12")(12)[c(1,4,7,9,12)])
+
+
+
+ha = rowAnnotation(psudobulk = as.numeric(heatmap_input_anno$psudo_group_MVS),
+                   col = list(psudobulk = col_fun_figure2),  show_legend = FALSE,
+                   simple_anno_size = unit(.5, "cm"))
+
+heatmap_input2 = heatmap_input
+heatmap_input2$Platelet = NULL ## missing values throughout
+ha_top2 = HeatmapAnnotation(`Cell Type` = colnames(heatmap_input2),
+    col = list(`Cell Type` = c("B" = "#994E95", "Mono/DC"  = "#73AF48", "Neut" = "#EDAD08",
+                         "Plasmablast" = "#5F4690", "NK" = "#0F8554","CD8 T"="#38A6A5","CD4 T"="#1D6996")), show_legend = FALSE, name = "", show_annotation_name = FALSE)
+
+rownames(heatmap_input2) = paste0(rownames(heatmap_input2)," DPI")
+
+# png(paste0(fig1_path,"Fig_1Kb_heatmap",".png"),width=9000,height=4200,res=1200)
+Heatmap(heatmap_input2, name = "MVS Score", col = col_fun_figure3, rect_gp = gpar(col = "white", lwd = 2), column_title_side = "bottom",  row_title_rot = 0,row_names_side = "left",
+        cluster_rows = FALSE, row_dend_reorder = FALSE, right_annotation = ha, top_annotation  = ha_top2, column_names_rot = 45,
+  heatmap_legend_param=list(title = "MVS score", title_gp = gpar( fontsize = 13),labels_gp = gpar(fontsize = 13),legend_width=unit(5,"line"),legend_height=unit(5,"line"),grid_width=unit(1.7,"line"),grid_height=unit(8,"line"),at = c(min(heatmap_input2,na.rm=T), max(heatmap_input2,na.rm=T)), labels = c("low", "high"),by_row = F,title_position = "topcenter"))
+# dev.off()
+
+png(paste0(fig1_path,"Fig_1K_heatmap",".png"),width=8000,height=5000,res=1200)
+Heatmap(heatmap_input2, name = "MVS Score", col = col_fun_figure3, rect_gp = gpar(col = "white", lwd = 2), column_title_side = "bottom",  row_title_rot = 0, row_names_side = "left",
+        cluster_rows = FALSE, row_dend_reorder = FALSE,  top_annotation  = ha_top2, column_names_rot = 45, column_names_gp = grid::gpar(fontsize = 15),
+  row_names_gp = grid::gpar(fontsize =15),
+  heatmap_legend_param=list(title = "MVS score", title_gp = gpar( fontsize = 13),labels_gp = gpar(fontsize = 13),legend_width=unit(5,"line"),legend_height=unit(5,"line"),grid_width=unit(1.7,"line"),grid_height=unit(8,"line"),at = c(min(heatmap_input2,na.rm=T), max(heatmap_input2,na.rm=T)), labels = c("low", "high"),by_row = F,title_position = "topcenter"))
+dev.off()
+```
+
+```{r}
+sfig3_path = paste0(fig_path, "sfigures/sfig3/")
+
+heatmap_fresh = as.data.frame(pheno_all)
+psudo_bulk_fresh = MVS_anno
+heatmap_fresh$id = paste0(heatmap_fresh$animal,"_",heatmap_fresh$DPIc)
+heatmap_fresh = merge(heatmap_fresh, psudo_bulk_fresh, by = "id")
+
+
+heatmap_input = heatmap_fresh %>%
+  group_by(DPIc, animal, leiden_lab_group_2) %>%
+  summarise_at(vars(cell_MVS_avg), list(cell_MVS_avg = mean))
+
+heatmap_input = as.data.frame(heatmap_input)
+heatmap_input$cell_MVS_avg_scale = scale(heatmap_input$cell_MVS_avg)
+
+plot_s3a = ggplot(heatmap_input, aes(x = DPIc, y = cell_MVS_avg_scale)) + geom_point()  + theme_bw() + facet_wrap(~leiden_lab_group_2, scale = "free_y", nrow = 1) + geom_smooth(method=loess, color='red', fill='lightblue') + ylab("Average cell MVS Score\n(by animal)")+ theme(text = element_text(size = 20)) + ggtitle("Average MVS Score by cell type")
+plot_s3a
+ggsave(plot_s3a, filename = paste0(sfig3_path,"sfig3a.png"), width = 20, height = 4)
+
+
+heatmap_input_combined = heatmap_fresh %>%
+  group_by(DPIc, animal) %>%
+  summarise_at(vars(cell_MVS_avg), list(cell_MVS_avg = mean))
+heatmap_input_combined = as.data.frame(heatmap_input_combined)
+heatmap_input_combined$cell_MVS_avg_scale = scale(heatmap_input_combined$cell_MVS_avg)
+
+plot_s3b = ggplot(heatmap_input_combined, aes(x = DPIc, y = cell_MVS_avg_scale)) + geom_point()  + theme_bw() + geom_smooth(method=loess, color='red', fill='lightblue')+ ylab("Average cell MVS Score \n(by animal)")+ theme(text = element_text(size = 20))  + ggtitle("Average MVS Score\nacross all cells")
+ggsave(plot_s3b, filename = paste0(sfig3_path,"sfig3b.png"), width = 6, height = 4)
+```
+
+

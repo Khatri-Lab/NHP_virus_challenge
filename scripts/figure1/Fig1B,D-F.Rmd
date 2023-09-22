@@ -1,0 +1,381 @@
+---
+title: "Figure 1A-F"
+output: html_document
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(ggbeeswarm)
+library(ggpubr)
+library(rstatix)
+
+set.seed(4)
+```
+
+# path setup
+```{r setup_paths}
+path = "" # add path
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+fig_path = paste0(path,"figures/")
+fig1_path = paste0(fig_path, "Figure1/")
+fig2_path = paste0(fig_path, "Figure2/")
+```
+
+FIGURE 1A
+```{r}
+dat = readRDS(file = paste0(datPath, "9a_timecat_peaksubset_individual.rds"))
+cols = c("dataset","disease","virus","virus_family","dataset2","dataset3","dataset4","dataset5","virus_description","day","day2","disease_day","macaque_species","animal","platform","sample_type",  "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "mod1", "mod2", "mod3", "mod4", "scores_normed", "mvs_scores_normed", "time_cat")
+df = bind_pheno_tables(dat, cols)
+df$Disease = df$disease
+df$`Infection Status` = ifelse(df$Disease == "Disease", "Infected", "Healthy")
+df$`Infection Status` = factor(df$`Infection Status`, levels = c("Healthy", "Infected"))
+
+df_sub = df[,c("Infection Status","dataset5","animal","time_cat","obj_name","MVS_score")] %>% as.data.table()
+df_sub_avg <- df_sub[, .(MVS_score = mean(MVS_score)), by = .(dataset5,animal,time_cat,`Infection Status`,obj_name)]
+
+res <- df_sub_avg %>% group_by(dataset5) %>% 
+       do(w = wilcox.test(MVS_score~`Infection Status`, data=., paired=FALSE)) %>% 
+       summarise(dataset5, Wilcox = w$p.value)
+adjusted_data <- res %>%
+  mutate(adjusted_p_value = p.adjust(Wilcox, method = "BH"))
+
+my_symnum <- list(cutpoints = c(0, 0.0001/5, 0.001/5, 0.01/5, 0.05/5, 1.1), symbols = c("****", "***", "**", "*", "ns"))
+
+plot = ggplot(df_sub_avg, aes(x = `Infection Status`, y = MVS_score, color = `Infection Status`))+ geom_violin(width=1) + 
+  geom_quasirandom(alpha = 0.5, width = 0.2)+geom_boxplot(width=0.2, color="black", alpha=0.2, outlier.shape = FALSE) + scale_color_manual(values = rev(infection_status_label_cols))  + facet_grid(. ~ dataset5) + theme(legend.position = "None")+ stat_compare_means( method = "wilcox.test", size = 8, comparisons = list(c("Healthy", "Infected")), symnum.args = my_symnum, method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold"))+theme(axis.text.x=element_blank(),axis.ticks.x=element_blank() )+ theme(
+  legend.position = c(0.5, 0.055), legend.direction="horizontal", # c(0,0) bottom left, c(1,1) top-right.
+  legend.background = element_rect(fill = "white", colour = "white") 
+)+ ylim(-3,5.5)+ theme(text = element_text(size = 18))     
+  plot <- ggplot_gtable(ggplot_build(plot))
+  strips <- which(grepl('strip-', plot$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot)
+ggsave(plot, filename = paste0(fig1_path,"Fig_1B",".png"), height = 5, width = 10.5)
+```
+
+
+## highlights shared functions
+```{r}
+highlights_theme = theme(legend.key.size = unit(9, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1.5, 'cm'), #change legend key width
+        legend.title = element_text(size=14), #change legend title font size
+        legend.text = element_text(size=18))
+
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+  detach("package:plyr", unload = TRUE)
+ return(data_sum)
+}
+
+get_stars = function(df){
+  df$sig = ifelse(df$p < .05, "****", "ns")
+  df$sig = ifelse(df$p >= 0.0001, "***", df$sig)
+  df$sig = ifelse(df$p >= 0.001, "**", df$sig)
+  df$sig = ifelse(df$p >= 0.01, "*", df$sig)
+  return(df)
+}
+```
+Example 1: VAX
+```{r}
+dat = readRDS(paste0(datPath, "5a_UV_scores_added.rds"))
+phenodat = dat$originalData$Baize$pheno
+
+phenodat = phenodat[phenodat$day %in% c(0,12),]
+phenodat$day = as.factor(phenodat$day)
+phenodat$vaccination_status = ifelse(phenodat$monkey == "Ctrl", "Unvaccinated", "Vaccinated")
+phenodat$`Infection Status` = ifelse(phenodat$disease == "Disease", "Infected", "Healthy")
+phenodat$vaccination_status = factor(phenodat$vaccination_status, levels = c("Vaccinated","Unvaccinated"))
+phenodat$Disease = phenodat$`Infection Status`
+
+## statistics - baseline correction in ANCOVA
+ex1_wide = phenodat[,c("animal","vaccination_status","day", "MVS_score")]
+ex1_wide$day = paste0("d",ex1_wide$day)
+ex1_wide<-dcast(ex1_wide, animal+vaccination_status~day)
+head(ex1_wide)
+ex1_wide = ex1_wide[complete.cases(ex1_wide),]
+ex1_res_aov <- aov(d12 ~ vaccination_status + d0 ,
+  data = ex1_wide
+)
+summary(ex1_res_aov)
+p_val = summary(ex1_res_aov)[[1]][["Pr(>F)"]][1]
+
+summary_df <- data_summary(phenodat, varname="MVS_score", 
+                    groupnames=c("vaccination_status", "Disease"))
+
+# Convert dose to a factor variable
+summary_df$vaccination_status=as.factor(summary_df$vaccination_status)
+summary_df
+
+stat.test1 <- phenodat %>%
+  group_by(day) %>%
+  t_test(MVS_score ~ vaccination_status, ref.group = "Unvaccinated") 
+stat.test1 <- stat.test1 %>%
+  add_xy_position(x = "day", dodge = 0.8)
+stat.test1 = stat.test1[-1,]
+stat.test1$p = p_val
+stat.test1$p_round = round(p_val,4)
+stat.test1 = get_stars(stat.test1)
+
+## graph
+p_1D = ggplot(phenodat, aes(x = `Infection Status`, y = MVS_score, color = vaccination_status, group = vaccination_status))  + geom_point(aes(group = vaccination_status), alpha = .2) + geom_line(aes(group = animal), size = 1.3, alpha = .2) + theme_bw()+ scale_color_manual(values = c("darkgrey",viral_family_colors[[1]])) + theme(text = element_text(size = 20)) + xlab("") + ylab("MVS score")+ theme(legend.position="top")+labs(colour="") +
+  ggtitle("Vaccination effect (MACV)") + ylim(c(-2,3.3)) + scale_x_discrete(limits = c("Healthy","Infected"), expand = c(0.05, 0.05)) +
+  annotate(geom = 'text', label = stat.test1$sig, x = "Infected", y = max(phenodat$MVS_score), hjust = 0.5, vjust = 0, size = 10) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))  + geom_point(data = summary_df, aes(x = Disease, y = MVS_score, group = vaccination_status)) + geom_line(data = summary_df, aes(x = Disease, y = MVS_score, group = vaccination_status), size = 1.5) + geom_errorbar(data = summary_df,aes(x = Disease, y = MVS_score, group = vaccination_status,ymin=MVS_score-sd, ymax=MVS_score+sd), width=0.02) +
+  highlights_theme+ guides(color = guide_legend(override.aes = list(size = 4))) 
+
+p_1D
+ggsave(p_1D, filename = paste0(fig1_path,"Fig_1D_MACV",".png"), height = 5, width = 5.5)
+```
+
+
+Example 2: EBOV data
+## strain drives differences in score at D6, independent of baseline
+```{r}
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+phenodat = dat$originalData$PRJNA718880$pheno
+phenodat$ebov_strain = phenodat$virus_description
+
+phenodat$strain_2 = ifelse(phenodat$ebov_strain == "Mayinga", "Mayinga", "Makona")
+phenodat$strain_2 = factor(phenodat$strain_2, levels = c("Makona", "Mayinga"))
+phenodat$`Infection Status` = ifelse(phenodat$disease == "Disease", "Infected", "Healthy")
+phenodat$`EBOV strain` = phenodat$strain_2
+phenodat = phenodat[phenodat$day != 4,]
+phenodat$Disease = phenodat$`Infection Status`
+
+## colors
+ebov_strain_colors = c("#feb359",  "#B17D3E")
+names(ebov_strain_colors) = c("Makona", "Mayinga")
+
+
+summary_df <- data_summary(phenodat, varname="MVS_score",
+                    groupnames=c("strain_2", "Disease"))
+
+# Convert dose to a factor variable
+summary_df$strain_2=as.factor(summary_df$strain_2)
+summary_df
+
+## statistics - baseline correction in rANOVA
+ex1_long <- melt(phenodat[,c("animal", "strain_2", "day", "MVS_score")], id.vars = c("animal", "strain_2", "day"))
+ex1_long = ex1_long[order(ex1_long$animal),] # order by ID
+ex1_long$animal = as.factor(ex1_long$animal) 
+ex1_long$strain_2 = factor(ex1_long$strain_2, levels = c("Makona", "Mayinga")) 
+ex1_long$day = as.numeric(ex1_long$day)
+ex1_long = as.data.frame(ex1_long)
+ex1_long$score = ex1_long$value
+
+
+
+## statistics - baseline correction in ANCOVA
+ex1_wide = ex1_long[,c("animal","strain_2","day", "value")]
+ex1_wide$day = paste0("d",ex1_wide$day)
+ex1_wide<-dcast(ex1_wide, animal+strain_2~day)
+head(ex1_wide)
+ex1_wide = ex1_wide[complete.cases(ex1_wide),]
+ex1_res_aov <- aov(d6 ~ strain_2 + d0 ,
+  data = ex1_wide
+)
+summary(ex1_res_aov)
+
+p_val = summary(ex1_res_aov)[[1]][["Pr(>F)"]][1]
+
+
+stat.test <- phenodat %>%
+  group_by(day) %>%
+  t_test(MVS_score ~ strain_2, ref.group = "Makona") 
+stat.test <- stat.test %>%
+  add_xy_position(x = "day", dodge = 0.8)
+stat.test2 = stat.test[-1,]
+stat.test2$p = p_val
+stat.test2$p_round = round(p_val,4)
+stat.test2 = get_stars(stat.test2)
+
+# graph
+p_1E = ggplot(phenodat, aes(x = `Infection Status`, y = MVS_score, color = strain_2, group = strain_2))  + geom_point(aes(group = strain_2), alpha = .2) + geom_line(aes(group = animal), size = 1.3, alpha = .2) + theme_bw()+ scale_color_manual(values = c("darkgrey",viral_family_colors[[3]])) + theme(text = element_text(size = 20)) + xlab("") + ylab("MVS score")+ theme(legend.position="top")+labs(colour="") +
+  ggtitle("Virus strain effect (EBOV)") + ylim(c(-2,2.2)) + scale_x_discrete(limits = c("Healthy","Infected"), expand = c(0.05, 0.05)) +
+  annotate(geom = 'text', label = stat.test2$sig, x = "Infected", y = max(phenodat$MVS_score), hjust = 0.5, vjust = 0, size = 10) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))  + geom_point(data = summary_df, aes(x = Disease, y = MVS_score, group = strain_2)) + geom_line(data = summary_df, aes(x = Disease, y = MVS_score, group = strain_2), size = 1.5) + geom_errorbar(data = summary_df,aes(x = Disease, y = MVS_score, group = strain_2,ymin=MVS_score-sd, ymax=MVS_score+sd), width=0.02) +
+  highlights_theme+ guides(color = guide_legend(override.aes = list(size = 4))) 
+p_1E
+ggsave(p_1E, filename = paste0(fig1_path,"Fig_1E_EBOV",".png"), height = 5, width = 5.5)
+
+
+```
+
+Example 3: Flu old v young Flu
+```{r}
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+phenodat = dat$originalData$GSE152406$pheno
+phenodat$Age = phenodat$`age:ch1`
+phenodat$Age = factor(phenodat$Age, levels = c("Young","Old"))
+death_shapes = c(1,4)
+names(death_shapes) = c("No","Yes")
+death_shapes = rev(death_shapes)
+phenodat$death = "no"
+phenodat$death = ifelse(phenodat$`animal number:ch1` == 7 && phenodat$day == 3, "yes", phenodat$death)
+phenodat$death = ifelse(phenodat$`animal number:ch1` == 4, "yes", phenodat$death)
+phenodat$`Death Post-Timepoint` = ifelse(phenodat$death == "yes", "Yes", "No")
+phenodat$Death = ifelse(phenodat$`animal number:ch1` == 7, "yes","no")
+phenodat$Death = ifelse(phenodat$`animal number:ch1` == 4, "yes", phenodat$Death)
+phenodat$`Infection Status` = ifelse(phenodat$disease == "Disease", "Infected", "Healthy")
+
+# Graph 2
+phenodat = phenodat[phenodat$day <= 3,]
+animals_to_remove = phenodat[phenodat$day == 6,]$animal
+phenodat = phenodat[!phenodat$animal %in% animals_to_remove,]
+
+phenodat$Disease = phenodat$`Infection Status`
+summary_df <- data_summary(phenodat, varname="MVS_score",
+                    groupnames=c("Age", "Disease"))
+# Convert dose to a factor variable
+summary_df$Age=as.factor(summary_df$Age)
+summary_df
+
+age_cols = c("#BB8FCE","#76448A")
+names(age_cols) = c("Young", "Old")
+
+phenodat$`Death Trajectory` = phenodat$Death
+phenodat$`Death Post-Timepoint` = ifelse(phenodat$Death == "yes" & phenodat$day == 3, "Yes", "No")
+phenodat$`Death Post-Timepoint` = ifelse(phenodat$animal == "M_animal number: 4" , "Yes",phenodat$`Death Post-Timepoint`)
+
+
+
+
+ex2_long <- melt(phenodat[,c("animal", "Age", "day", "MVS_score")], id.vars = c("animal", "Age", "day"))
+ex2_long = ex2_long[order(ex2_long$animal),] # order by ID
+ex2_long$animal = as.factor(ex2_long$animal) 
+ex2_long$day = as.numeric(ex2_long$day)
+ex2_long = as.data.frame(ex2_long)
+ex2_long$score = ex2_long$value
+
+ex2_long_d3 = ex2_long[ex2_long$day != 6,]
+
+
+## statistics - baseline correction in ANCOVA
+ex2_wide = ex2_long_d3[,c("animal","Age","day", "value")]
+ex2_wide$day = paste0("d",ex2_wide$day)
+ex2_wide<-dcast(ex2_wide, animal+Age~day)
+head(ex2_wide)
+ex2_wide = ex2_wide[complete.cases(ex2_wide),]
+ex2_res_aov <- aov(d3 ~ Age + d0 ,
+  data = ex2_wide
+)
+summary(ex2_res_aov)
+
+p_val = summary(ex2_res_aov)[[1]][["Pr(>F)"]][1]
+
+phenodat$day = factor(phenodat$day)
+
+
+stat.test <- phenodat %>%
+  group_by(day) %>%
+  t_test(MVS_score ~ Age, ref.group = "Young") 
+stat.test <- stat.test %>%
+  add_xy_position(x = "day", dodge = 0.8)
+stat.test2 = stat.test[-1,]
+stat.test2$p = round(p_val,3)
+stat.test2$p_round = round(p_val,4)
+stat.test2 = get_stars(stat.test2)
+
+
+p_1F = ggplot(phenodat, aes(x = `Infection Status`, y = MVS_score, color = Age, group = Age))  + geom_point(aes(group = Age), alpha = .2) + geom_line(aes(group = animal), size = 1.3, alpha = .2) + theme_bw()+ scale_color_manual(values = c("darkgrey",viral_family_colors[[5]])) + theme(text = element_text(size = 20)) + xlab("") + ylab("MVS score")+ theme(legend.position="top")+labs(colour="") +
+  ggtitle("Age effect (IFV)") + ylim(c(-2,2.5)) + scale_x_discrete(limits = c("Healthy","Infected"), expand = c(0.05, 0.05)) +
+  annotate(geom = 'text', label = stat.test2$sig, x = "Infected", y = max(phenodat$MVS_score), hjust = 0.5, vjust = 0, size = 10) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))  + geom_point(data = summary_df, aes(x = Disease, y = MVS_score, group = Age)) + geom_line(data = summary_df, aes(x = Disease, y = MVS_score, group = Age), size = 1.5) + geom_errorbar(data = summary_df,aes(x = Disease, y = MVS_score, group = Age,ymin=MVS_score-sd, ymax=MVS_score+sd), width=0.02)  +
+  highlights_theme+ guides(color = guide_legend(override.aes = list(size = 4))) 
+p_1F
+ggsave(p_1F, filename = paste0(fig1_path,"Fig_1F_IFV_age",".png"), height = 5, width = 5.5)
+
+```
+
+Example 4: UV vs Live Flu
+```{r}
+dat = readRDS(file = paste0(datPath, "5a_UV_scores_added.rds"))
+
+phenodat = dat$originalData$GSE60009$pheno
+phenodat$virus_type = ifelse(phenodat$characteristics_ch1.2 == "challenge: UV Cal04", "IFV-UV", "IFV-Live")
+phenodat$virus_type = factor(phenodat$virus_type, levels = c("IFV-UV", "IFV-Live"))
+
+phenodat$day = as.integer(phenodat$day)
+phenodat$`Virus Type` = ifelse(phenodat$virus_type == "IFV-UV", "IFV - UV Inactived", "IFV - Live")
+phenodat$virus_type = phenodat$`Virus Type`
+virus_type_cols = c("#BB8FCE", "#6C3483")
+names(virus_type_cols) = c("IFV - UV Inactived", "IFV - Live")
+phenodat$`Virus Type`  = factor(phenodat$`Virus Type`, levels = c(c("IFV - UV Inactived", "IFV - Live")))
+phenodat$`Infection Status` = ifelse(phenodat$disease == "Disease", "Infected", "Healthy")
+
+phenodat = phenodat[phenodat$day %in% c(0,1),]
+phenodat$Disease = phenodat$`Infection Status`
+phenodat$day = factor(phenodat$day)
+phenodat$virus_type = phenodat$`Virus Type`
+
+
+summary_df <- data_summary(phenodat, varname="MVS_score",
+                    groupnames=c("virus_type", "Disease"))
+# Convert dose to a factor variable
+summary_df$virus_type=as.factor(summary_df$virus_type)
+summary_df
+
+## statistics - baseline correction in rANOVA
+ex3_long <- melt(phenodat[,c("animal", "virus_type", "day", "MVS_score")], id.vars = c("animal", "virus_type", "day"))
+ex3_long = ex3_long[order(ex3_long$animal),] # order by ID
+ex3_long$animal = as.factor(ex3_long$animal) 
+ex3_long$day = as.numeric(as.character(ex3_long$day))
+ex3_long = as.data.frame(ex3_long)
+ex3_long$score = ex3_long$value
+
+ex3_long_d1 = ex3_long[ex3_long$day %in% c(0,1),]
+
+## statistics - baseline correction in ANCOVA
+ex3_wide = ex3_long_d1[,c("animal","virus_type","day", "value")]
+ex3_wide$day = paste0("d",ex3_wide$day)
+ex3_wide<-dcast(ex3_wide, animal+virus_type~day)
+head(ex3_wide)
+ex3_wide = ex3_wide[complete.cases(ex3_wide),]
+ex3_res_aov <- aov(d1 ~ virus_type + d0 ,
+  data = ex3_wide
+)
+summary(ex3_res_aov)
+
+p_val = summary(ex3_res_aov)[[1]][["Pr(>F)"]][1]
+
+
+stat.test <- phenodat %>%
+  group_by(day) %>%
+  t_test(MVS_score ~ virus_type, ref.group = "IFV - UV Inactived") 
+stat.test <- stat.test %>%
+  add_xy_position(x = "day", dodge = 0.8)
+stat.test2 = stat.test[-1,]
+stat.test2$p = round(p_val,3)
+stat.test2$p_round = round(p_val,4)
+stat.test2 = get_stars(stat.test2)
+
+
+
+p_1G = ggplot(phenodat, aes(x = `Infection Status`, y = MVS_score, color = virus_type, group = virus_type))  + geom_point(aes(group = virus_type), alpha = .2) + geom_line(aes(group = animal), size = 1.3, alpha = .2) + theme_bw()+ scale_color_manual(values = c("darkgrey",viral_family_colors[[5]])) + theme(text = element_text(size = 20)) + xlab("") + ylab("MVS score")+ theme(legend.position="top")+labs(colour="") +
+  ggtitle("Virus type effect (IFV)") + ylim(c(-1.45,3.6)) + scale_x_discrete(limits = c("Healthy","Infected"), expand = c(0.05, 0.05)) +
+  annotate(geom = 'text', label = stat.test2$sig, x = "Infected", y = max(phenodat$MVS_score), hjust = 0.5, vjust = 0, size = 10) + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))  + geom_point(data = summary_df, aes(x = Disease, y = MVS_score, group = virus_type)) + geom_line(data = summary_df, aes(x = Disease, y = MVS_score, group = virus_type), size = 1.5) + geom_errorbar(data = summary_df,aes(x = Disease, y = MVS_score, group = virus_type,ymin=MVS_score-sd, ymax=MVS_score+sd), width=0.02) + guides(color = guide_legend(override.aes = list(size = 4))) +
+  highlights_theme+ guides(color = guide_legend(override.aes = list(size = 4))) 
+p_1G
+ggsave(p_1G, filename = paste0(fig1_path,"Fig_1G_IFV_UV",".png"), height = 5, width = 5.5)
+```
+

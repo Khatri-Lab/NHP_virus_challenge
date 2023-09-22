@@ -1,0 +1,161 @@
+---
+title: "03_Jaccard_comparison_scores"
+output: html_document
+date: "2022-12-28"
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(magrittr)
+library(ComplexHeatmap)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/subset_dataobjects.R"))
+source(paste0(path,"scripts/run_pooled_aurocs.R"))
+fig_path = paste0(path,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+```{r}
+dat = readRDS(paste0(datPath, "16a_timecat_peaksubset_with_virus_scores_individual.rds"))
+```
+
+```{r}
+arena_dat = reformat(dat, arena)
+arena_dat  = fix_formattedname(arena_dat)
+corona_dat = reformat(dat, corona)
+corona_dat  = fix_formattedname(corona_dat)
+filo_dat = reformat(dat, filo)
+filo_dat  = fix_formattedname(filo_dat)
+flavi_dat = reformat(dat, flavi)
+flavi_dat  = fix_formattedname(flavi_dat)
+ortho_dat = reformat(dat, ortho)
+ortho_dat  = fix_formattedname(ortho_dat)
+
+virus_dat_list = list(arena_dat, corona_dat, filo_dat, flavi_dat, ortho_dat)
+names(virus_dat_list) = c("arena", "corona", "filo", "flavi", "ortho")
+```
+
+
+```{r}
+get_new_AUC_plots(virus_dat_list, "filo_score")
+get_new_AUC_plots(virus_dat_list, "arena_score")
+get_new_AUC_plots(virus_dat_list, "corona_score")
+get_new_AUC_plots(virus_dat_list, "flavi_score")
+get_new_AUC_plots(virus_dat_list, "ortho_score")
+get_new_AUC_plots(virus_dat_list, "all_score")
+get_new_AUC_plots(virus_dat_list, "own_score")
+```
+
+```{r}
+filo_aucs = get_new_AUC_plots(virus_dat_list, "filo_score", return_dat = TRUE)$legendTextDt %>% mutate(score_type = "filo_score")
+arena_aucs = get_new_AUC_plots(virus_dat_list, "arena_score", return_dat = TRUE)$legendTextDt %>% mutate(score_type = "arena_score")
+corona_aucs = get_new_AUC_plots(virus_dat_list, "corona_score", return_dat = TRUE)$legendTextDt %>% mutate(score_type = "corona_score")
+flavi_aucs = get_new_AUC_plots(virus_dat_list, "flavi_score", return_dat = TRUE)$legendTextDt %>% mutate(score_type = "flavi_score")
+ortho_aucs = get_new_AUC_plots(virus_dat_list, "ortho_score", return_dat = TRUE)$legendTextDt %>% mutate(score_type = "ortho_score")
+all_aucs = get_new_AUC_plots(virus_dat_list, "all_score", return_dat = TRUE)$legendTextDt %>% mutate(score_type = "all_score")
+mvs_aucs = get_new_AUC_plots(virus_dat_list, "MVS_score", return_dat = TRUE)$legendTextDt %>% mutate(score_type = "MVS_score")
+
+
+full_table = rbind(arena_aucs, corona_aucs, filo_aucs, flavi_aucs, ortho_aucs,  all_aucs,  mvs_aucs)
+
+
+full_table$dataset = gsub(",","",full_table$dataset)
+saveRDS(full_table, paste0(datPath, "auroc_table.rds"))
+```
+
+```{r}
+full_table = readRDS(paste0(datPath, "auroc_table.rds"))
+full_tablea = full_table[,c("dataset","AUC","score_type")]
+colnames(full_tablea)[3] = "score_virus"
+full_tablea$dataset = ifelse(grepl("Orth", full_tablea$dataset),
+                             "Ortho.", full_tablea$dataset)
+full_tablea$dataset = ifelse(grepl("Flavi", full_tablea$dataset),
+                             "Flavi.", full_tablea$dataset)
+full_tablea$dataset = ifelse(grepl("Arena", full_tablea$dataset),
+                             "Arena.", full_tablea$dataset)
+full_tablea$dataset = ifelse(grepl("Corona", full_tablea$dataset),
+                             "Corona.", full_tablea$dataset)
+full_tablea$dataset = ifelse(grepl("Filo", full_tablea$dataset),
+                             "Filo.", full_tablea$dataset)
+
+
+full_tableb = reshape(full_tablea, idvar = "dataset", timevar = "score_virus", direction = "wide")
+rownames(full_tableb) = full_tableb$dataset
+full_tableb$dataset = NULL
+colnames(full_tableb) = gsub("AUC.", "", colnames(full_tableb))
+library(scales)
+col_fun_figure = circlize::colorRamp2(seq(0,1,length=5), dichromat_pal("DarkRedtoBlue.12")(12)[c(1,4,7,9,12)])
+full_tablec = t(full_tableb)
+rownames(full_tablec) = c("Arena Sig.", "Corona Sig.", "Filo Sig.", "Flavi Sig.","Ortho Sig.",   "VRS (NHP)", "MVS (Human)")
+ht_list =Heatmap(full_tablec, col = col_fun_figure, row_title = "Score Discovery Dataset", column_title_side = "bottom", name = "AUC",  rect_gp = gpar(col = "white", lwd = 2),column_title = "Test Dataset (Virus Peak vs T0)", row_title_side = "right", show_column_dend = TRUE, show_row_dend = FALSE, heatmap_legend_param = list( legend_height = unit(3.5, "cm")), 
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.2f", full_tablec[i, j]), x, y, gp = gpar(fontsize = 14))
+} )
+
+
+draw(ht_list, heatmap_legend_side = "left")
+
+```
+
+## save heaty
+```{r}
+png(paste0(fig3_path,"Fig3E_AUC.png"),width=5,height=4,units="in",res=1200)
+draw(ht_list, heatmap_legend_side = "left")
+dev.off()
+```
+
+## AUROC FUNCTIONS
+```{r}
+get_new_AUC_plots = function(virus_dat_list, score_name, return_dat = FALSE) {
+  point_n = 1000
+  arena_dat = makePooledROCplot(virus_dat_list$arena$originalData, pos.genes = "", neg.genes = "",score.overwrite.col =score_name, points = point_n)
+  corona_dat = makePooledROCplot(virus_dat_list$corona$originalData, pos.genes = "", neg.genes = "",score.overwrite.col =score_name, points = point_n)
+  filo_dat = makePooledROCplot(virus_dat_list$filo$originalData, pos.genes = "", neg.genes = "",score.overwrite.col =score_name, points = point_n)
+  flavi_dat = makePooledROCplot(virus_dat_list$flavi$originalData, pos.genes = "", neg.genes = "",score.overwrite.col =score_name, points = point_n)
+  ortho_dat = makePooledROCplot(virus_dat_list$ortho$originalData, pos.genes = "", neg.genes = "",score.overwrite.col =score_name, points = point_n)
+  
+  arena_plot_dat = subset_pooled_toSummary(arena_dat, paste0("Arenaviridae,"))
+  corona_plot_dat = subset_pooled_toSummary(corona_dat, paste0("Coronaviridae,"))
+  filo_plot_dat = subset_pooled_toSummary(filo_dat, paste0("Filoviridae,"))
+  flavi_plot_dat = subset_pooled_toSummary(flavi_dat, paste0("Flaviviridae,"))
+  ortho_plot_dat = subset_pooled_toSummary(ortho_dat, paste0("Orthomyxoviridae,"))
+  
+  ## combine data
+  combined_viruses = list(rbind(arena_plot_dat$plotdata,
+                                corona_plot_dat$plotdata,
+                                filo_plot_dat$plotdata,
+                                flavi_plot_dat$plotdata,
+                                ortho_plot_dat$plotdata),
+                          rbind(arena_plot_dat$legendTextDt,
+                                corona_plot_dat$legendTextDt,
+                                filo_plot_dat$legendTextDt,
+                                flavi_plot_dat$legendTextDt,
+                                ortho_plot_dat$legendTextDt))
+  names(combined_viruses) = c("plotdata", "legendTextDt")
+  
+  colors_auroc = c(rep(viral_family_colors[1]), rep(viral_family_colors[2]), rep(viral_family_colors[3]), rep(viral_family_colors[4]), rep(viral_family_colors[5]))
+  names(colors_auroc) = names(combined_viruses$legendTextDt$dataset) 
+  if(return_dat == TRUE) {
+    return(combined_viruses)
+  }
+  combined_plot = plot_pooledROC(combined_viruses, colors = colors_auroc, legend_title = "", plottitle = paste0("Summary ROC curves of ",score_name,"\nby Virus Family") )
+  return(combined_plot)
+}
+```
+###
