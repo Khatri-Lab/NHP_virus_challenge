@@ -1,0 +1,204 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(Seurat)
+library(harmony)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(rcartocolor)
+library(RColorBrewer)
+library(NatParksPalettes)
+library(viridis)
+library(babelgene)
+library(ggh4x)
+set.seed(4)
+```
+
+paths
+```{r}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/single-cell-scripts.R"))
+fig_path = paste0(path,"figures/")
+fig5_path = paste0(fig_path, "Figure5/")
+sfig_path = paste0(fig_path,"sfigures/sfigX/")
+```
+
+```{R}
+dat = readRDS(file = paste0(datPath, "9a_timecat_peaksubset_individual.rds"))
+
+dat = add_score_to_pheno(dat, "Mod4", Mod4)
+cols = c("dataset","disease","virus","virus_family","dataset2","dataset3","dataset4","dataset5","virus_description","day","day2","disease_day","macaque_species","animal","platform","sample_type",  "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "mod1", "mod2", "mod3", "mod4", "scores_normed", "mvs_scores_normed", "time_cat")
+df = bind_pheno_tables(dat, cols)
+
+df5 = df
+df5$MVS_score = as.numeric(as.character(df5$MVS_score))
+df5 = df5 %>%
+  group_by(obj_name, day, dataset5) %>%
+  summarise(avg = mean(MVS_score))
+df5 =  df5 %>% group_by(obj_name) %>% top_n(1, avg)
+quantile(df5$day, probs = seq(0, 1, 0.2)) ## define time_cat
+df5$time_category = ifelse(df5$day %in% c(1:2), "t1", "t5")
+df5$time_category = ifelse(df5$day %in% c(3:5), "t2", df5$time_category)
+df5$time_category = ifelse(df5$day %in% c(6:8), "t3", df5$time_category)
+df5$time_category = ifelse(df5$day %in% c(9:12), "t4", df5$time_category)
+df5$time_category = ifelse(df5$day %in% c(0), "t0", df5$time_category)
+
+df5$time_category_max = df5$time_category
+df5$time_category = NULL
+df5$dataset5 = NULL
+df5$day = NULL
+df6 = merge(df, df5, by = "obj_name")
+# df6$keep = ifelse()
+df7 = df6[(df6$time_category == df6$time_category_max | df6$day == 0),]
+df7$Disease = df7$disease
+df7$`Infection Status` = ifelse(df7$Disease == "Disease", "Infected", "Healthy")
+df7$`Infection Status` = factor(df7$`Infection Status`, levels = c("Healthy", "Infected"))
+
+# one sided wilcoxin
+n = 5/2
+my_symnum <- list(cutpoints = c(0, 0.0001/n, 0.001/n, 0.01/n, 0.05/n, 1.1), symbols = c("****", "***", "**", "*", "ns"))
+
+plot = ggplot(df7, aes(x = `Infection Status`, y = Mod4, color = `Infection Status`))+ geom_violin(width=1) + 
+  geom_quasirandom(alpha = 0.5, width = 0.2)+geom_boxplot(width=0.2, color="black", alpha=0.2, outlier.shape = FALSE) + scale_color_manual(values = rev(infection_status_label_cols))  + facet_grid(. ~ dataset5) + theme(legend.position = "None")+ stat_compare_means( method = "wilcox.test", size = 8, comparisons = list(c("Healthy", "Infected")), symnum.args = my_symnum) + xlab("") + ylab("Module 4 score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold"))+theme(axis.text.x=element_blank(),axis.ticks.x=element_blank() )+ theme(
+  legend.position = c(0.5, 0.055), legend.direction="horizontal", # c(0,0) bottom left, c(1,1) top-right.
+  legend.background = element_rect(fill = "white", colour = "white") 
+)+ ylim(-4,3.5)+ theme(text = element_text(size = 18))     
+  plot <- ggplot_gtable(ggplot_build(plot))
+  strips <- which(grepl('strip-', plot$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot)
+ggsave(plot, filename = paste0(fig5_path,"Fig_5A_mod4",".png"), height = 5, width = 10.5)
+```
+
+
+### DYNAMICS
+## Module 4 - black dots with "own score"
+```{r}
+dat = readRDS(paste0(datPath, "5a_alldata_virus_scores_added.rds"))
+cols2 = c("dataset","disease","dataset4","dataset5","day","day2","MVS_score", "mvs_score", "animal","arena_score","corona_score", "filo_score","flavi_score","ortho_score","all_score", "time_cat", "Mod2", "Mod4", "Mod1", "Mod3")
+df = bind_pheno_tables(dat, cols2)
+df$Virus = df$dataset5
+df$Virus2 = df$dataset4
+
+df_lim = df[, c("day", "Virus", "Virus2", "animal","Mod1", "Mod2","Mod3","Mod4","all_score", "MVS_score")]
+data_long <- gather(df_lim, score_type, measurement, Mod1:MVS_score, factor_key=FALSE)
+data_long$score_type2 = ifelse(data_long$score_type == "Mod4", "Module 4", data_long$score_type)
+data_long$score_type2 = ifelse(data_long$score_type2 == "MVS_score", "MVS Score", data_long$score_type2)
+data_long$score_type2 = ifelse(data_long$score_type2 == "all_score", "VRS Score", data_long$score_type2)
+data_long$`Score Type` = data_long$score_type2
+
+data_long2 = data_long[data_long$day <= 10 &
+                                         data_long$score_type %in% c("all_score","Mod4"),]
+
+
+Fig4b = ggplot(data_long2, aes(x = day, y = measurement, color = `Score Type`, linetype = `Score Type`)) + theme_bw() + geom_point(alpha = .1)+  geom_smooth(se=FALSE) + facet_wrap(~Virus) + scale_linetype_manual(values = c("solid", "dashed")) +scale_color_manual(values = c("#28B463","black")) + ylab("Score") + scale_x_continuous(limits = c(0, 10), breaks = c(0,5,10), labels =  c(0,5,10)) + theme(text = element_text(size = 18)) +   scale_y_continuous(breaks = c(-1,0,1), labels =  c(-1,0,1))+ xlab("Days Post-Infection")
+Fig4b
+
+
+
+base <- ggplot(data_long2, aes(x = day, y = measurement, color = `Score Type`, linetype = `Score Type`)) + theme_bw() + geom_point(alpha = .1)+  geom_smooth(se=FALSE) + scale_linetype_manual(values = c("solid", "dashed")) +scale_color_manual(values = c("#28B463","black")) + ylab("Score") + scale_x_continuous(limits = c(0, 10), breaks = c(0,5,10), labels =  c(0,5,10)) + theme(text = element_text(size = 18)) +    xlab("Days Post-Infection")+
+  theme(legend.position="none")
+
+design <- c(
+"
+AABBCC
+#DDEE#
+"
+)
+
+plot = base + ggh4x::facet_manual(~Virus, design = design, scales = "free_y")
+
+
+plot = plot + theme(strip.text = element_text(colour = 'white', face = "bold"))+ theme(text = element_text(size = 18)) 
+
+  plot <- ggplot_gtable(ggplot_build(plot))
+  strips <- which(grepl('strip-', plot$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot)
+
+# ggsave(plot, filename = paste0(fig5_path,"Fig_5B_mod4",".png"), height = 6, width = 9)
+```
+
+```{r}
+plot2 = ggplot(data_long2, aes(x = day, y = measurement, color = `Score Type`, linetype = `Score Type`)) + theme_bw() + geom_point(alpha = .1)+  geom_smooth(se=TRUE) + facet_wrap(~Virus) + scale_linetype_manual(values = c("solid", "dashed")) +scale_color_manual(values = c("#28B463","black")) + ylab("Score") + scale_x_continuous(limits = c(0, 10), breaks = c(0,5,10), labels =  c(0,5,10)) + theme(text = element_text(size = 22)) + xlab("Days Post-Infection") + facet_grid(~Virus, scales = "free_y") + theme(legend.background = element_rect(fill = "white", colour = "white"),strip.text = element_text(colour = 'white', face = "bold"), legend.position = c(0.5, 0.06), legend.direction="horizontal")+ylim(-3.8,2.3)
+  plot2 <- ggplot_gtable(ggplot_build(plot2))
+  strips <- which(grepl('strip-', plot2$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot2$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot2$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot2$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot2)
+# ggsave(plot2, filename = paste0(fig5_path,"Fig_5B_mod4_v2",".png"), height = 5, width = 13)
+
+input_df = df_lim[df_lim$day <= 10,]
+plot = ggplot(input_df, aes(x = all_score, y = Mod4)) + geom_point(color = "#ABB2B9") + theme_bw() + geom_smooth(method='lm', aes(x = all_score, y = Mod4), color = "black") + scale_color_manual(values = viral_family_colors)+ stat_cor(method = "spearman", size = 5.5, label.y.npc="top") +  xlab("VRS Score")+ ylab("Module 4 Score") +
+  theme(legend.position="none")+ facet_wrap(~Virus, scales = "free_x", nrow = 1)+ theme(strip.text = element_text(colour = 'white', face = "bold"))+ theme(text = element_text(size = 22)) +ylim(-3.8,2.3)
+  plot <- ggplot_gtable(ggplot_build(plot))
+  strips <- which(grepl('strip-', plot$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot)
+# ggsave(plot, filename = paste0(fig5_path,"Fig_5C_mod4_v2",".png"), height = 5, width = 13)
+```
+
+
+
+### DYNAMICS
+## Module 4 - black dots with "own score"
+```{r}
+
+input_df = df_lim[df_lim$day <= 10,]
+base <- ggplot(input_df, aes(x = all_score, y = Mod4)) + geom_point(color = "#ABB2B9") + theme_bw() + geom_smooth(method='lm', aes(x = all_score, y = Mod4), color = "black") + scale_color_manual(values = viral_family_colors)+ stat_cor(method = "spearman", size = 5.5) +  xlab("VRS Score")+ ylab("Module 4 Score") +
+  theme(legend.position="none")
+
+design <- c(
+"
+AABBCC
+#DDEE#
+"
+)
+
+plot = base + ggh4x::facet_manual(~Virus, design = design, scales = "free")
+
+
+plot = plot + theme(strip.text = element_text(colour = 'white', face = "bold"))+ theme(text = element_text(size = 18)) 
+
+  plot <- ggplot_gtable(ggplot_build(plot))
+  strips <- which(grepl('strip-', plot$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot)
+
+ggsave(plot, filename = paste0(fig5_path,"Fig_5C_mod4_cor",".png"), height = 6, width = 9)
+```
+
+
+
+###

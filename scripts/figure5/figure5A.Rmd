@@ -1,0 +1,154 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+
+```{r}
+library(Seurat)
+library(harmony)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(rcartocolor)
+library(RColorBrewer)
+library(NatParksPalettes)
+library(viridis)
+library(babelgene)
+library(ComplexHeatmap)
+set.seed(4)
+```
+
+paths
+```{r}
+path = ""
+datPath = paste0(path_og, "data/processed_data/")
+source(paste0(path_og,"scripts/load_mvs_genes.R"))
+source(paste0(path_og,"scripts/functions_step45.R"))
+source(paste0(path_og,"scripts/single-cell-scripts.R"))
+fig_path = paste0(path_og,"figures/")
+fig5_path = paste0(fig_path, "Figure5/")
+sfig_path = paste0(fig_path,"sfigures/sfigX/")
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "9a_timecat_peaksubset.rds"))
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "16a_timecat_peaksubset_with_virus_scores_individual.rds"))
+
+dat$originalData$GSE49838 = NULL
+cols = c("dataset","disease","dataset4","dataset5","virus_description","day","animal","platform","sample_type",  "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "mod1", "mod2", "mod3", "mod4", "scores_normed", "mvs_scores_normed", "time_cat", "all_score")
+df = bind_pheno_tables(dat, cols)
+df = as.data.table(df)
+df = df %>% group_by(animal, time_cat, dataset) %>% top_n(1, all_score)
+df = as.data.table(df)
+unique(df$obj_name)
+df = separate(df, "obj_name",c(NA,"name"),"-",remove = FALSE)
+unique(df$name)
+df$rowname = rownames(df)
+df = setDT(df)[, Mod1_normed := Mod1 - mean(Mod1[day == 0]), by = animal]
+df = as.data.frame(df)
+rownames(df) = df$rowname
+
+df = setDT(df)[, Mod2_normed := Mod2 - mean(Mod2[day == 0]), by = animal]
+df = as.data.frame(df)
+rownames(df) = df$rowname
+
+df = setDT(df)[, Mod3_normed := Mod3 - mean(Mod3[day == 0]), by = animal]
+df = as.data.frame(df)
+rownames(df) = df$rowname
+
+df = setDT(df)[, Mod4_normed := Mod4 - mean(Mod4[day == 0]), by = animal]
+df = as.data.frame(df)
+rownames(df) = df$rowname
+
+df = setDT(df)[, VRS_normed := all_score - mean(all_score[day == 0]), by = animal]
+df = as.data.frame(df)
+rownames(df) = df$rowname
+
+df = setDT(df)[, MVS_normed := MVS_score - mean(MVS_score[day == 0]), by = animal]
+df = as.data.frame(df)
+rownames(df) = df$rowname
+
+df = df[df$day != 0,]
+df = df[!df$animal == "B14",]
+df = setDT(df)[, Mod1_avg := median(Mod1_normed), by = dataset]
+df = setDT(df)[, Mod2_avg := median(Mod2_normed), by = dataset]
+df = setDT(df)[, Mod3_avg := median(Mod3_normed), by = dataset]
+df = setDT(df)[, Mod4_avg := median(Mod4_normed), by = dataset]
+df = setDT(df)[, VRS_avg := median(VRS_normed), by = dataset]
+df = setDT(df)[, MVS_avg := median(MVS_normed), by = dataset]
+
+df = setDT(df)[, Mod1_sd := sd(Mod1_normed), by = dataset]
+df = setDT(df)[, Mod2_sd := sd(Mod2_normed), by = dataset]
+df = setDT(df)[, Mod3_sd := sd(Mod3_normed), by = dataset]
+df = setDT(df)[, Mod4_sd := sd(Mod4_normed), by = dataset]
+df = setDT(df)[, VRS_sd := sd(VRS_normed), by = dataset]
+df = setDT(df)[, MVS_sd := sd(MVS_normed), by = dataset]
+
+
+df_subset = df[,c("name","dataset4","dataset5","day","animal","Mod1_normed","Mod2_normed","Mod3_normed","Mod4_normed","VRS_normed","MVS_normed")]
+df_subsetb = df[,c("name","dataset4","dataset5","Mod1_avg","Mod2_avg","Mod3_avg","Mod4_avg","VRS_avg","MVS_avg")] %>% unique()
+df_subsetc = df[,c("name","dataset4","dataset5","Mod1_sd","Mod2_sd","Mod3_sd","Mod4_sd","VRS_sd","MVS_sd")] %>% unique()
+
+# View(df_subsetb)
+
+# rownames(df_subset) = paste0(df_subset$dataset,"_",df_subset$day,"_",df_subset$animal)
+# df_subset2 = df_subset[,c("Mod1_normed","Mod2_normed","Mod3_normed","Mod4_normed","VRS_normed","MVS_normed")]
+# df_subset2 = as.matrix(df_subset2)
+# Heatmap(df_subset2,cluster_rows = TRUE,cluster_columns = FALSE)
+
+annotation = df[,c("name","dataset5")] %>% unique()
+
+ha = rowAnnotation(`Virus Family` = annotation$dataset5,
+               col = list(`Virus Family` = c("Arenaviridae" = viral_family_colors[[1]], "Coronaviridae" = viral_family_colors[[2]], "Filoviridae" = viral_family_colors[[3]],
+                       "Flaviviridae" = viral_family_colors[[4]], "Orthomyxoviridae" = viral_family_colors[[5]])))
+
+df_subsetb %<>% as.data.frame()
+rownames(df_subsetb) = paste0(df_subsetb$name)
+df_subsetb2 = df_subsetb[,!(colnames(df_subsetb) %in% c("name","dataset4","dataset5"))] %>% as.matrix()
+colnames(df_subsetb2) = gsub("_avg", " score", colnames(df_subsetb2))
+
+# png(paste0(fig5_path,"Fig_5A_heatmap.png"),width=6,height=6,units="in",res=1200)
+
+Heatmap(df_subsetb2,cluster_rows = FALSE,cluster_columns = FALSE, left_annotation = ha, name = "Baseline-\nsubtracted\nscore",
+        row_names_side = "left", row_split = rep(annotation$dataset5), row_title_rot = 0)
+# dev.off()
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "5a_alldata_virus_scores_added.rds"))
+
+cols = c("dataset","disease","dataset4","dataset5","virus_description","day","animal","platform","sample_type",  "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "mod1", "mod2", "mod3", "mod4", "scores_normed", "mvs_scores_normed", "time_cat", "all_score")
+df = bind_pheno_tables(dat, cols)
+df = as.data.table(df) 
+df = df[df$day < 10,]
+# df = df[!df$animal == "B14",]
+df = separate(df, "obj_name",c(NA,"name"),"-",remove = FALSE)
+df = setDT(df)[, Mod1 := cor(all_score, Mod1, method = "spearman"), by = dataset]
+df = setDT(df)[, Mod2 := cor(all_score, Mod2, method = "spearman"), by = dataset]
+df = setDT(df)[, Mod3 := cor(all_score, Mod3, method = "spearman"), by = dataset]
+df = setDT(df)[, Mod4 := cor(all_score, Mod4, method = "spearman"), by = dataset]
+df = setDT(df)[, MVS := cor(all_score, MVS_score, method = "spearman"), by = dataset]
+df_subsetb = df[,c("name","dataset5","Mod1","Mod2","Mod3","Mod4","MVS")] %>% unique()
+
+
+annotation = df[,c("name","dataset5")] %>% unique()
+
+ha = rowAnnotation(`Virus\nFamily` = annotation$dataset5,
+               col = list(`Virus\nFamily` = c("Arenaviridae" = viral_family_colors[[1]], "Coronaviridae" = viral_family_colors[[2]], "Filoviridae" = viral_family_colors[[3]],
+                       "Flaviviridae" = viral_family_colors[[4]], "Orthomyxoviridae" = viral_family_colors[[5]])))
+
+df_subsetb %<>% as.data.frame()
+rownames(df_subsetb) = paste0(df_subsetb$name)
+df_subsetb2 = df_subsetb[,!(colnames(df_subsetb) %in% c("name","dataset4","dataset5"))] %>% as.matrix()
+colnames(df_subsetb2) = gsub("_avg", " score", colnames(df_subsetb2))
+
+png(paste0(fig5_path,"Fig_5A_cor_heatmap.png"),width=6,height=6,units="in",res=1200)
+
+Heatmap(df_subsetb2,cluster_rows = FALSE,cluster_columns = FALSE, left_annotation = ha, name = "Spearman\ncorrelation\nwith VRS",
+        row_names_side = "left", row_split = rep(annotation$dataset5), row_title_rot = 0)
+dev.off()
+```
