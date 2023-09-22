@@ -1,0 +1,443 @@
+---
+title: "01_3A"
+output: html_document
+---
+---
+title: "Generating Scores (Fig3)"
+output: html_document
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(magrittr)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+datTable = paste0(path, "data/data_tables/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/subset_dataobjects.R"))
+source(paste0(path,"scripts/run_pooled_aurocs.R"))
+fig_path = paste0(path,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+## starting object
+# doing score generation on peak point for by DEGs from 3A
+```{r}
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+time_to_keep = readRDS(paste0(datPath, "times_to_keep_2a.rds"))
+
+time_to_keep$time_category = ifelse(time_to_keep$dataset5 %in% c("Coronaviridae","Orthomyxoviridae"), "t2","t4")
+time_to_keep$time_category = ifelse(time_to_keep$dataset5 == "Flaviviridae", "t3", time_to_keep$time_category)
+time_to_keep$time_category = ifelse(time_to_keep$obj_name == "GSE5790-LCMV_1", "t3", time_to_keep$time_category) ## there isn't animals at t4 but t3 only
+time_to_keep$time_category = ifelse(time_to_keep$obj_name == "GSE24943-EBOV_2", "t3", time_to_keep$time_category)
+time_to_keep$time_category = ifelse(time_to_keep$obj_name == "PRJNA718880-EBOV_3", "t3", time_to_keep$time_category)
+time_to_keep$time_category = ifelse(time_to_keep$obj_name == "PRJNA398558-EBOV_4", "t3", time_to_keep$time_category)
+
+dat = subset_data_with_dfkey(dat, time_to_keep)
+
+saveRDS(dat, paste0(datPath, "16a_timecat_peaksubset_unbiased.rds"))
+```
+
+```{r}
+all = readRDS(paste0(datPath, "16a_timecat_peaksubset_unbiased.rds"))
+
+arena_dat = reformat(all, arena,  reMetanalaysis = TRUE)
+arena_dat  = fix_formattedname(arena_dat)
+corona_dat = reformat(all, corona,  reMetanalaysis = TRUE)
+corona_dat  = fix_formattedname(corona_dat)
+filo_dat = reformat(all, filo,  reMetanalaysis = TRUE)
+filo_dat  = fix_formattedname(filo_dat)
+flavi_dat = reformat(all, flavi,  reMetanalaysis = TRUE)
+flavi_dat  = fix_formattedname(flavi_dat)
+ortho_dat = reformat(all, ortho,  reMetanalaysis = TRUE)
+ortho_dat  = fix_formattedname(ortho_dat)
+all = readRDS(paste0(datPath, "16a_timecat_peaksubset_unbiased.rds")) %>% runMetaAnalysis()
+
+virus_dat_list = list(arena_dat, corona_dat, filo_dat, flavi_dat,ortho_dat)
+names(virus_dat_list) = c("arena", "corona", "filo", "flavi","ortho")
+saveRDS(virus_dat_list, file = paste0(datPath, "11_peak_virus_metaanalysis_datlist.rds"))
+saveRDS(all, file = paste0(datPath, "fig3_allviruses_scores_NHPpeak.rds"))
+```
+
+## generating scores using the objects created in 01_generating degs
+```{r}
+# arena = readRDS(file = paste0(datPath,"arena","_timesplit_dat.rds"))$t4 %>% runMetaAnalysis()
+# corona = readRDS(file = paste0(datPath,"corona","_timesplit_dat.rds"))$t2 %>% runMetaAnalysis()
+# filo = readRDS(file = paste0(datPath,"filo","_timesplit_dat.rds"))$t3 %>% runMetaAnalysis()
+# flavi = readRDS(file = paste0(datPath,"flavi","_timesplit_dat.rds"))$t3 %>% runMetaAnalysis()
+# ortho = readRDS(file = paste0(datPath,"ortho","_timesplit_dat.rds"))$t2 %>% runMetaAnalysis()
+# all = readRDS(file = paste0(datPath, "16a_timecat_peaksubset_unbiased.rds")) %>% runMetaAnalysis()
+# 
+# 
+# virus_dat_list = list(arena, corona, filo, flavi,ortho)
+# names(virus_dat_list) = c("arena", "corona", "filo", "flavi","ortho")
+# saveRDS(virus_dat_list, file = paste0(datPath, "11_peak_virus_metaanalysis_datlist.rds"))
+# saveRDS(all, file = paste0(datPath, "fig3_allviruses_scores_NHPpeak.rds"))
+```
+
+## with effect size cutoffs
+```{r}
+run_filter_genes = function(obj, loos = c(TRUE,FALSE), fdr_thresh = c(.05,.01,.001, .0001), es_list = c(.6, 1)) {
+  for (loo in loos){
+    for (val in fdr_thresh){
+      print(val)
+      for (val2 in es_list){
+        print(val2)
+        obj = filterGenes(obj, isLeaveOneOut = loo, FDRThresh = val, effectSizeThresh = val2)
+      }
+    }
+  }
+  return(obj)
+}
+
+virus_dat_list = readRDS(file = paste0(datPath, "11_peak_virus_metaanalysis_datlist.rds"))
+all = readRDS(paste0(datPath, "fig3_allviruses_scores_NHPpeak.rds"))
+
+arena = virus_dat_list$arena %>% run_filter_genes()
+corona = virus_dat_list$corona %>% run_filter_genes()
+filo = virus_dat_list$filo %>% run_filter_genes()
+flavi = virus_dat_list$flavi %>% run_filter_genes()
+ortho = virus_dat_list$ortho %>% run_filter_genes()
+
+all %<>% run_filter_genes()
+
+virus_dat_list2 = list(arena, corona, filo, flavi, ortho,  all)
+names(virus_dat_list2) = c("arena", "corona", "filo", "flavi", "ortho",  "all")
+
+saveRDS(virus_dat_list2, file = paste0(datPath, "12a_scores_virus_datlist.rds"))
+```
+
+
+```{r}
+virus_dat_list2 = readRDS(paste0(datPath, "12a_scores_virus_datlist.rds"))
+
+### arena
+cols = c("virus", "filter","pos","neg", "total")
+arena_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(arena_df) <- cols
+
+virus = "arena"
+arena_obj = virus_dat_list2$arena
+
+for (filter in names(arena_obj$filterResults)) {
+  item = arena_obj$filterResults[[filter]]
+  pos_num = length(item$posGeneNames)
+  neg_num = length(item$negGeneNames)
+  total_num = pos_num + neg_num
+  row = c(virus,filter, pos_num,neg_num, total_num)
+  arena_df = rbind(arena_df, row)
+  colnames(arena_df) = cols
+  arena_df$pos = as.numeric(arena_df$pos)
+  arena_df$neg = as.numeric(arena_df$neg)
+  arena_df$total = as.numeric(arena_df$total)
+}
+
+## corona
+cols = c("virus", "filter","pos","neg", "total")
+corona_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(corona_df) <- cols
+
+virus = "corona"
+corona_obj = virus_dat_list2$corona
+
+for (filter in names(corona_obj$filterResults)) {
+  item = corona_obj$filterResults[[filter]]
+  pos_num = length(item$posGeneNames)
+  neg_num = length(item$negGeneNames)
+  total_num = pos_num + neg_num
+  row = c(virus,filter, pos_num,neg_num, total_num)
+  corona_df = rbind(corona_df, row)
+  colnames(corona_df) = cols
+  corona_df$pos = as.numeric(corona_df$pos)
+  corona_df$neg = as.numeric(corona_df$neg)
+  corona_df$total = as.numeric(corona_df$total)
+}
+
+## filo
+cols = c("virus", "filter","pos","neg", "total")
+filo_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(filo_df) <- cols
+
+virus = "filo"
+filo_obj = virus_dat_list2$filo
+
+for (filter in names(filo_obj$filterResults)) {
+  item = filo_obj$filterResults[[filter]]
+  pos_num = length(item$posGeneNames)
+  neg_num = length(item$negGeneNames)
+  total_num = pos_num + neg_num
+  row = c(virus,filter, pos_num,neg_num, total_num)
+  filo_df = rbind(filo_df, row)
+  colnames(filo_df) = cols
+  filo_df$pos = as.numeric(filo_df$pos)
+  filo_df$neg = as.numeric(filo_df$neg)
+  filo_df$total = as.numeric(filo_df$total)
+}
+
+## flavi
+cols = c("virus", "filter","pos","neg", "total")
+flavi_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(flavi_df) <- cols
+
+virus = "flavi"
+flavi_obj = virus_dat_list2$flavi
+
+for (filter in names(flavi_obj$filterResults)) {
+  item = flavi_obj$filterResults[[filter]]
+  pos_num = length(item$posGeneNames)
+  neg_num = length(item$negGeneNames)
+  total_num = pos_num + neg_num
+  row = c(virus,filter, pos_num,neg_num, total_num)
+  flavi_df = rbind(flavi_df, row)
+  colnames(flavi_df) = cols
+  flavi_df$pos = as.numeric(flavi_df$pos)
+  flavi_df$neg = as.numeric(flavi_df$neg)
+  flavi_df$total = as.numeric(flavi_df$total)
+}
+
+## ortho
+cols = c("virus", "filter","pos","neg", "total")
+ortho_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(ortho_df) <- cols
+
+virus = "ortho"
+ortho_obj = virus_dat_list2$ortho
+
+for (filter in names(ortho_obj$filterResults)) {
+  item = ortho_obj$filterResults[[filter]]
+  pos_num = length(item$posGeneNames)
+  neg_num = length(item$negGeneNames)
+  total_num = pos_num + neg_num
+  row = c(virus,filter, pos_num,neg_num, total_num)
+  ortho_df = rbind(ortho_df, row)
+  colnames(ortho_df) = cols
+  ortho_df$pos = as.numeric(ortho_df$pos)
+  ortho_df$neg = as.numeric(ortho_df$neg)
+  ortho_df$total = as.numeric(ortho_df$total)
+}
+
+
+## all
+cols = c("virus", "filter","pos","neg", "total")
+all_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(all_df) <- cols
+
+virus = "all"
+all_obj = virus_dat_list2$all
+
+for (filter in names(all_obj$filterResults)) {
+  item = all_obj$filterResults[[filter]]
+  pos_num = length(item$posGeneNames)
+  neg_num = length(item$negGeneNames)
+  total_num = pos_num + neg_num
+  row = c(virus,filter, pos_num,neg_num, total_num)
+  all_df = rbind(all_df, row)
+  colnames(all_df) = cols
+  all_df$pos = as.numeric(all_df$pos)
+  all_df$neg = as.numeric(all_df$neg)
+  all_df$total = as.numeric(all_df$total)
+}
+
+
+full_table = rbind(arena_df, corona_df, filo_df, flavi_df, ortho_df, all_df)
+full_table$pos = as.numeric(full_table$pos)
+full_table$neg = as.numeric(full_table$neg)
+full_table$total = as.numeric(full_table$total)
+full_table2 = full_table
+full_table2$dist = abs(200 - full_table2$total)
+full_table2b = full_table2[full_table2$dist < 100,]
+full_table2b = full_table2b[grepl(0.6,full_table2b$filter),]
+```
+
+```{r}
+arena_threshold = "FDR1e-04_es0.6_nStudies1_looaFALSE_hetero0" #207
+corona_threshold = "FDR0.001_es0.6_nStudies1_looaFALSE_hetero0" #181
+filo_threshold = "FDR0.01_es0.6_nStudies1_looaTRUE_hetero0" #152
+flavi_threshold = "FDR0.001_es0.6_nStudies1_looaFALSE_hetero0" #120
+ortho_threshold = "FDR0.05_es0.6_nStudies1_looaFALSE_hetero0" #169
+all_threshold = "FDR1e-04_es0.6_nStudies1_looaTRUE_hetero0" #257
+
+score_thresholds = list(arena_threshold, corona_threshold, filo_threshold,
+                        flavi_threshold, ortho_threshold,
+                        all_threshold)
+names(score_thresholds) = c("arena", "corona", "filo", "flavi", "ortho",  "all")
+
+saveRDS(score_thresholds, file = paste0(datPath, "score_thresholds_string.rds"))
+```
+
+
+## pick the right score
+```{r}
+score_thresholds = readRDS(paste0(datPath, "score_thresholds_string.rds"))
+virus_dat_list = readRDS(paste0(datPath, "12a_scores_virus_datlist.rds"))
+
+arena_pos = virus_dat_list$arena$filterResults[[score_thresholds$arena]]$posGeneNames
+arena_neg = virus_dat_list$arena$filterResults[[score_thresholds$arena]]$negGeneNames
+
+corona_pos = virus_dat_list$corona$filterResults[[score_thresholds$corona]]$posGeneNames
+corona_neg = virus_dat_list$corona$filterResults[[score_thresholds$corona]]$negGeneNames
+
+filo_pos = virus_dat_list$filo$filterResults[[score_thresholds$filo]]$posGeneNames
+filo_neg = virus_dat_list$filo$filterResults[[score_thresholds$filo]]$negGeneNames
+
+flavi_pos = virus_dat_list$flavi$filterResults[[score_thresholds$flavi]]$posGeneNames
+flavi_neg = virus_dat_list$flavi$filterResults[[score_thresholds$flavi]]$negGeneNames
+
+ortho_pos = virus_dat_list$ortho$filterResults[[score_thresholds$ortho]]$posGeneNames
+ortho_neg = virus_dat_list$ortho$filterResults[[score_thresholds$ortho]]$negGeneNames
+
+all_pos = virus_dat_list$all$filterResults[[score_thresholds$all]]$posGeneNames
+all_neg = virus_dat_list$all$filterResults[[score_thresholds$all]]$negGeneNames
+
+scores_list = list(arena_pos, arena_neg, corona_pos, corona_neg, filo_pos, filo_neg,
+                   flavi_pos, flavi_neg, ortho_pos, ortho_neg,
+                   all_pos, all_neg,  mvs.up, mvs.down)
+names(scores_list) = c("arena_pos", "arena_neg", "corona_pos", "corona_neg", "filo_pos", "filo_neg",
+                   "flavi_pos", "flavi_neg", "ortho_pos", "ortho_neg",
+                   "all_pos", "all_neg","MVS_pos","MVS_down")
+
+saveRDS(scores_list, file = paste0(datPath, "score_genes.rds"))
+```
+
+# get table with effectsize, score, gene, direction
+```{R}
+scores_list = readRDS(paste0(datPath, "score_genes.rds"))
+virus_dat_list2 = readRDS(paste0(datPath, "12a_scores_virus_datlist.rds"))
+
+arena_df = virus_dat_list2$arena$metaAnalysis$pooledResults[c(scores_list$arena_pos,scores_list$arena_neg),]
+arena_df$gene = rownames(arena_df)
+arena_df = arena_df[,c("gene","effectSize")]
+arena_df$score_type = "Arena Sig."
+
+corona_df = virus_dat_list2$corona$metaAnalysis$pooledResults[c(scores_list$corona_pos,scores_list$corona_neg),]
+corona_df$gene = rownames(corona_df)
+corona_df = corona_df[,c("gene","effectSize")]
+corona_df$score_type = "Corona Sig."
+
+filo_df = virus_dat_list2$filo$metaAnalysis$pooledResults[c(scores_list$filo_pos,scores_list$filo_neg),]
+filo_df$gene = rownames(filo_df)
+filo_df = filo_df[,c("gene","effectSize")]
+filo_df$score_type = "Filo Sig."
+
+flavi_df = virus_dat_list2$flavi$metaAnalysis$pooledResults[c(scores_list$flavi_pos,scores_list$flavi_neg),]
+flavi_df$gene = rownames(flavi_df)
+flavi_df = flavi_df[,c("gene","effectSize")]
+flavi_df$score_type = "Flavi Sig."
+
+ortho_df = virus_dat_list2$ortho$metaAnalysis$pooledResults[c(scores_list$ortho_pos,scores_list$ortho_neg),]
+ortho_df$gene = rownames(ortho_df)
+ortho_df = ortho_df[,c("gene","effectSize")]
+ortho_df$score_type = "Ortho Sig."
+
+all_df = virus_dat_list2$all$metaAnalysis$pooledResults[c(scores_list$all_pos,scores_list$all_neg),]
+all_df$gene = rownames(all_df)
+all_df = all_df[,c("gene","effectSize")]
+all_df$score_type = "VRS Sig."
+
+
+signature_df = rbind(arena_df, corona_df, filo_df, flavi_df, ortho_df, all_df)
+write.csv(signature_df, file = paste0(datTable,"stable5_scores.csv"), row.names=FALSE)
+```
+
+## generate all the scores to add to the full object (5a)
+## subset full object by 3A peaks
+```{r}
+scores_list = readRDS(paste0(datPath, "score_genes.rds"))
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+
+dat = add_score_to_pheno(dat, "arena_score", scores_list$arena_pos, scores_list$arena_neg)
+dat = add_score_to_pheno(dat, "corona_score", scores_list$corona_pos, scores_list$corona_neg)
+dat = add_score_to_pheno(dat, "filo_score", scores_list$filo_pos, scores_list$filo_neg)
+dat = add_score_to_pheno(dat, "flavi_score", scores_list$flavi_pos, scores_list$flavi_neg)
+dat = add_score_to_pheno(dat, "ortho_score", scores_list$ortho_pos, scores_list$ortho_neg)
+dat = add_score_to_pheno(dat, "all_score", scores_list$all_pos, scores_list$all_neg)
+
+for (dataset in names(dat$originalData)) {
+  if(unique(dat$originalData[[dataset]]$pheno$dataset5) == "Arenaviridae") {
+    print("arena")
+    dat$originalData[[dataset]]$pheno$own_score = dat$originalData[[dataset]]$pheno$arena_score
+  }
+  if(unique(dat$originalData[[dataset]]$pheno$dataset5) == "Coronaviridae") {
+    print("corona")
+    dat$originalData[[dataset]]$pheno$own_score = dat$originalData[[dataset]]$pheno$corona_score
+  }
+  if(unique(dat$originalData[[dataset]]$pheno$dataset5) == "Filoviridae") {
+    print("filo")
+    dat$originalData[[dataset]]$pheno$own_score = dat$originalData[[dataset]]$pheno$filo_score
+  }
+  if(unique(dat$originalData[[dataset]]$pheno$dataset5) == "Flaviviridae") {
+    print("flavi")
+    dat$originalData[[dataset]]$pheno$own_score = dat$originalData[[dataset]]$pheno$flavi_score
+  }
+  if(unique(dat$originalData[[dataset]]$pheno$dataset5) == "Orthomyxoviridae") {
+    print("ortho")
+    dat$originalData[[dataset]]$pheno$own_score = dat$originalData[[dataset]]$pheno$ortho_score
+  }
+}
+
+saveRDS(dat, file = paste0(datPath, "5a_alldata_virus_scores_added.rds"))
+```
+
+```{r}
+dat = readRDS(paste0(datPath, "5a_alldata_virus_scores_added.rds"))
+time_to_keep = readRDS(paste0(datPath, "times_to_keep_2a.rds"))
+dat = subset_data_with_dfkey(dat, time_to_keep)
+saveRDS(dat, paste0(datPath, "16a_timecat_peaksubset_with_virus_scores.rds"))
+```
+
+```{r}
+## pick the earliest day in the time category
+subset_data_by_anitime = function(object, df, colname = "obj_name") {
+  data_out = list()
+  object = fix_time_cat(object)
+  for (i in 1:length(names(object$originalData))) {
+    dataset = object$originalData[[i]]
+    pheno = dataset$pheno
+    name = unname(unlist(unique(pheno[colname])))
+    df_one = df[df$obj_name == name,]
+    df_one$ani_day = paste0(df_one$animal,"_",df_one$day)
+    pheno$ani_day = paste0(pheno$animal,"_",pheno$day)
+
+    ## subset pheno by animal+time
+    pheno_sub = pheno[pheno$ani_day %in% df_one$ani_day,]
+    print(paste0(name,"_",nrow(pheno),"_",nrow(pheno_sub)))
+    ## subset by dataset by pheno
+    dataset <- subsetOriginalData(dataset, 
+                                  keepMe= c(rownames(pheno_sub)))
+    message(checkDataObject(dataset, "Dataset"))
+    object$originalData[[i]] = dataset
+    }
+  return(object)
+}
+```
+
+```{r}
+dat = readRDS(paste0(datPath, "5a_alldata_virus_scores_added.rds"))
+df_single = readRDS(paste0(datPath, "df_single.rds"))
+dat = subset_data_by_anitime(dat, df_single)
+
+for (i in c(1:length(names(dat$originalData)))) {
+  print(unique(dat$originalData[[i]]$pheno$day))
+  print(unique(dat$originalData[[i]]$pheno$time_cat))
+}
+
+saveRDS(dat, paste0(datPath, "16a_timecat_peaksubset_with_virus_scores_individual.rds"))
+
+table(table(df_single$animal)) # confirm max 2 timepoints
+```
+
+

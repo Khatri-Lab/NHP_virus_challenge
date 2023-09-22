@@ -1,0 +1,255 @@
+---
+title: "03_Jaccard_comparison_scores"
+output: html_document
+date: "2022-12-28"
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(magrittr)
+library(ComplexHeatmap)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/subset_dataobjects.R"))
+source(paste0(path,"scripts/run_pooled_aurocs.R"))
+fig_path = paste0(path,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+## jaccard gene functions
+```{r}
+jaccard_posneg <- function(pos1, neg1, pos2, neg2) {
+  a_in = c(paste0("pos_",pos1), paste0("neg_",neg1))
+  b_in = c(paste0("pos_",pos2), paste0("neg_",neg2))
+  j_i = jaccard(a_in, b_in)
+  return(list(j_i, length(c(pos1,neg1)), length(c(pos2, neg2))))
+}
+
+jaccard <- function(a, b) {
+    intersection = length(intersect(a, b))
+    union = length(a) + length(b) - intersection
+    return (intersection/union)
+}
+
+#example
+scores_list = readRDS(paste0(datPath, "score_genes.rds"))
+
+jaccard_posneg(scores_list$arena_pos, scores_list$arena_neg, scores_list$corona_pos, scores_list$corona_neg)
+```
+
+```{r}
+sum(c(scores_list$flavi_neg, scores_list$flavi_pos) %in% c(scores_list$ortho_pos, scores_list$ortho_neg))
+sum(c(scores_list$ortho_neg, scores_list$ortho_pos) %in% c(scores_list$corona_pos, scores_list$corona_neg))
+sum(c(scores_list$filo_pos, scores_list$filo_neg) %in% c(scores_list$flavi_neg, scores_list$flavi_pos))
+sum(c(scores_list$all_pos,scores_list$all_neg) %in% c(scores_list$MVS_pos, scores_list$MVS_down))
+```
+
+## jaccard by genes
+```{r}
+scores_list = readRDS(paste0(datPath, "score_genes.rds"))
+pos_list = scores_list[c(1,3,5,7,9,11,13)]
+neg_list = scores_list[c(2,4,6,8,10,12,14)]
+
+virus_names = c("Arena Sig.", "Corona Sig.", "Filo Sig.", "Flavi Sig.", "Ortho Sig.",  "VRS (NHP)", "MVS (Human)")
+# order_keep = c(6,9,1,3,5,4,2,7,8)
+# virus_names = virus_names[order_keep]
+# pos_list = pos_list[order_keep]
+# neg_list = neg_list[order_keep]
+
+jaccard_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(jaccard_df) <- c('Virus1', 'Virus2', 'Jaccard_Index',"n_vir1","n_vir2")
+for (i in c(1:7)) {
+  for (j in c(i:7)) {
+    jac_val = jaccard_posneg(pos_list[[i]], neg_list[[i]], pos_list[[j]], neg_list[[j]])
+    jaccard_df = rbind(jaccard_df, c(virus_names[i], virus_names[j], jac_val[[1]],
+                                     jac_val[[2]], jac_val[[3]]))
+  }
+}
+
+colnames(jaccard_df) <- c('Virus1', 'Virus2', 'Jaccard_Index',"n_vir1","n_vir2")
+jaccard_df$Jaccard_Index = as.numeric(jaccard_df$Jaccard_Index)
+jaccard_df$Virus1 = factor(jaccard_df$Virus1, levels = virus_names)
+jaccard_df$Virus2 = factor(jaccard_df$Virus2, levels = virus_names)
+jaccard_df$label = ifelse(jaccard_df$Virus1 == jaccard_df$Virus2, jaccard_df$n_vir1, round(jaccard_df$Jaccard_Index,2))
+
+
+# to get row order
+jaccard_df_wide <- dcast(jaccard_df, Virus1 ~ Virus2, value.var="Jaccard_Index")
+rownames(jaccard_df_wide) = jaccard_df_wide$Virus1
+jaccard_df_wide$Virus1 = NULL
+Heatmap(jaccard_df_wide)
+row_order = rownames(jaccard_df_wide)[row_order(draw(Heatmap(jaccard_df_wide)))]
+row_order = rev(row_order)
+jaccard_df$Virus1 = factor(jaccard_df$Virus1, levels = row_order)
+jaccard_df$Virus2 = factor(jaccard_df$Virus2, levels = row_order)
+
+
+jac_plot = ggplot(jaccard_df, aes(x = Virus1, y = Virus2, fill = Jaccard_Index)) +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  scale_fill_distiller(palette = "Spectral") +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + coord_flip() +
+  ggtitle("Jaccard Index by Gene Overlap") + theme(text = element_text(size = 15))  
+jac_plot
+ggsave(jac_plot, filename = paste0(fig3_path, "Fig3C_jacplot.png"), width = 6, height = 5)
+
+jaccard_df_gene = jaccard_df
+virus_names = row_order
+```
+
+## jaccard by BTMs functions
+```{r}
+sig_path_list = readRDS(paste0(datPath,"sig_path_list",".rds"))
+arena_peak = sig_path_list$arena
+corona_peak = sig_path_list$corona
+filo_peak = sig_path_list$filo
+flavi_peak = sig_path_list$flavi
+ortho_peak = sig_path_list$ortho
+all_peak = sig_path_list$all
+mvs_peak = sig_path_list$mvs
+
+arena_peak$btm_pos$dir = "pos"
+arena_peak$btm_neg$dir = "neg"
+all_arena_peak <- rbind(arena_peak$btm_pos, arena_peak$btm_neg) %>% as.data.table
+all_arena_peak = as.data.table(all_arena_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_arena_peak$virus = "Arena Sig."
+
+corona_peak$btm_pos$dir = "pos"
+corona_peak$btm_neg$dir = "neg"
+all_corona_peak <- rbind(corona_peak$btm_pos, corona_peak$btm_neg) %>% as.data.table
+all_corona_peak = as.data.table(all_corona_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_corona_peak$virus = "Corona Sig."
+
+filo_peak$btm_pos$dir = "pos"
+filo_peak$btm_neg$dir = "neg"
+all_filo_peak <- rbind(filo_peak$btm_pos, filo_peak$btm_neg) %>% as.data.table
+all_filo_peak = as.data.table(all_filo_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_filo_peak$virus = "Filo Sig."
+
+flavi_peak$btm_pos$dir = "pos"
+flavi_peak$btm_neg$dir = "neg"
+all_flavi_peak <- rbind(flavi_peak$btm_pos, flavi_peak$btm_neg) %>% as.data.table
+all_flavi_peak = as.data.table(all_flavi_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_flavi_peak$virus = "Flavi Sig."
+
+ortho_peak$btm_pos$dir = "pos"
+ortho_peak$btm_neg$dir = "neg"
+all_ortho_peak <- rbind(ortho_peak$btm_pos, ortho_peak$btm_neg) %>% as.data.table
+all_ortho_peak = as.data.table(all_ortho_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_ortho_peak$virus = "Ortho Sig."
+
+all_peak$btm_pos$dir = "pos"
+all_peak$btm_neg$dir = "neg"
+all_all_peak <- rbind(all_peak$btm_pos, all_peak$btm_neg) %>% as.data.table
+all_all_peak = as.data.table(all_all_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_all_peak$virus = "VRS (NHP)"
+
+mvs_peak$btm_pos$dir = "pos"
+mvs_peak$btm_neg$dir = "neg"
+all_mvs_peak <- rbind(mvs_peak$btm_pos, mvs_peak$btm_neg) %>% as.data.table
+all_mvs_peak = as.data.table(all_mvs_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_mvs_peak$virus = "MVS (Human)"
+
+btm_paths_all = rbind(all_arena_peak, all_corona_peak, all_filo_peak, all_flavi_peak, all_ortho_peak, all_all_peak, all_mvs_peak) 
+btm_paths_all$id = (btm_paths_all$virus)
+
+saveRDS(btm_paths_all, file = paste0(datPath,"signature_btm2.rds"))
+
+btm_paths_all = readRDS(paste0(datPath,"signature_btm2.rds"))
+# thresholds for the pathways
+min_genes_present = 2
+keep_p.adj_thresh = 0.1 
+
+## threshold the full data
+btm_paths_all_threshold <- setDT(btm_paths_all)[ p.adj < keep_p.adj_thresh & 
+                                            relevant.genes >= min_genes_present ] 
+dim(btm_paths_all_threshold)
+saveRDS(btm_paths_all_threshold, file = paste0(datPath,"signature_btm2b.rds"))
+```
+
+
+```{r}
+btm_paths_all = readRDS(file = paste0(datPath,"signature_btm2b.rds"))
+
+row_order
+virus_names = (row_order)
+
+jaccard_df <- data.frame(matrix(ncol = 5, nrow = 0))
+colnames(jaccard_df) <- c('Virus1', 'Virus2', 'Jaccard_Index',"n_vir1","n_vir2")
+for (i in c(1:7)) {
+  for (j in c(i:7)) {
+    pos_a = btm_paths_all[btm_paths_all$virus == virus_names[i] & btm_paths_all$dir == "pos",]$set.name
+    pos_b = btm_paths_all[btm_paths_all$virus == virus_names[j] & btm_paths_all$dir == "pos",]$set.name
+    neg_a = btm_paths_all[btm_paths_all$virus == virus_names[i] & btm_paths_all$dir == "neg",]$set.name
+    neg_b = btm_paths_all[btm_paths_all$virus == virus_names[j] & btm_paths_all$dir == "neg",]$set.name
+    jac_val = jaccard_posneg(pos_a,neg_a, pos_b, neg_b)
+    # jac_val = get_jaccard_between_btm_genes(pos_list[[i]], neg_list[[i]], pos_list[[j]], neg_list[[j]])
+    jaccard_df = rbind(jaccard_df, c(virus_names[i], virus_names[j], jac_val[[1]],
+                                     jac_val[[2]], jac_val[[3]]))
+  }
+}
+
+colnames(jaccard_df) <- c('Virus1', 'Virus2', 'Jaccard_Index',"n_vir1","n_vir2")
+jaccard_df$Jaccard_Index = as.numeric(jaccard_df$Jaccard_Index)
+
+jaccard_df$Virus1 = factor(jaccard_df$Virus1, levels = row_order)
+jaccard_df$Virus2 = factor(jaccard_df$Virus2, levels = row_order)
+jaccard_df$label = ifelse(jaccard_df$Virus1 == jaccard_df$Virus2, jaccard_df$n_vir1, round(jaccard_df$Jaccard_Index,2))
+
+
+jac_plot = ggplot(jaccard_df, aes(x = Virus1, y = Virus2, fill = Jaccard_Index)) +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  scale_fill_distiller(palette = "Spectral") +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + coord_flip()+
+  ggtitle("Jaccard Index by BTM Overlap") + theme(text = element_text(size = 15)) 
+jac_plot
+ggsave(jac_plot, filename = paste0(fig3_path, "Fig3D_jacplot_btms.png"), width = 6, height = 5)
+```
+
+```{R}
+jaccard_df_gene$type = "JI by Gene Overlap"
+jaccard_df$type = "JI by Enriched BTMs"
+
+jaccard_comb = rbind(jaccard_df_gene, jaccard_df)
+jaccard_comb$type = factor(jaccard_comb$type, levels = c("JI by Gene Overlap","JI by Enriched BTMs")) 
+
+jac_plot = ggplot(jaccard_comb, aes(x = Virus1, y = Virus2, fill = Jaccard_Index)) +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  scale_fill_distiller(palette = "Spectral") +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + coord_flip()+ facet_wrap(~type) + theme(text = element_text(size = 18)) +labs(fill="Jaccard\n Index") 
+jac_plot
+
+jac_plot2 = ggplot(jaccard_comb, aes(x = Virus1, y = Virus2, fill = Jaccard_Index)) +
+  geom_raster() + theme_bw() +
+  geom_text(aes(label = label)) +
+  scale_fill_distiller(palette = "Spectral", limits = c(0,1)) +
+  theme(panel.grid = element_blank()) + xlab("") + ylab("")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) + coord_flip()+ facet_wrap(~type) + theme(text = element_text(size = 18)) +labs(fill="Jaccard Index (JI)") + theme(legend.position="top")+ theme(legend.text=element_text(size=10))
+
+jac_plot2
+ggsave(jac_plot2, filename = paste0(fig3_path, "Fig3D_jacplot_combined.png"), width = 9, height = 6)
+
+```
+
+
+###

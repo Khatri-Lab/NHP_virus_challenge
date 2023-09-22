@@ -1,0 +1,529 @@
+---
+title: "Untitled"
+output: html_document
+date: "2022-12-29"
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(circlize)
+library(NatParksPalettes)
+library(STRINGdb)
+library(ComplexHeatmap)
+library(STRINGdb)
+
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/subset_dataobjects.R"))
+source(paste0(path,"scripts/run_pooled_aurocs.R"))
+source(paste0(path,"scripts/figure3/04_BTM_GO_KEGG_functions.R"))
+fig_path = paste0(path,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+# generate btm_col_table
+```{r Setting up colors}
+modgenes_df = get_modgenes_table(modGenes)
+
+load(paste0(path,"/BTMS/BTM_groups.rda"))
+BTM_groups = merge(modgenes_df[,"path_name"], BTM_groups, by.x = "path_name", by.y = "NAME", all.x = TRUE, all.y = TRUE)
+colnames(BTM_groups)[1] = "NAME"
+BTM_groups = BTM_groups[!(grepl("TBA",BTM_groups$NAME)),]
+BTM_groups$GROUP = ifelse(BTM_groups$GROUP == "" | is.na(BTM_groups$GROUP), "NA", BTM_groups$GROUP)
+BTM_groups$SUBGROUP = ifelse(BTM_groups$SUBGROUP == "" | is.na(BTM_groups$SUBGROUP), "NA", BTM_groups$SUBGROUP)
+
+btm_subgroup_order = c("B CELLS",
+              "PLASMA CELLS",                       
+              "T CELLS",
+              "NK CELLS",
+              "NEUTROPHILS",
+              "MONOCYTES",
+              "DC ACTIVATION",
+              "INFLAMMATORY/TLR/CHEMOKINES" ,
+              "INTERFERON/ANTIVIRAL SENSING",
+              "SIGNAL TRANSDUCTION" ,
+              "ANTIGEN PRESENTATION",
+              "CELL CYCLE",
+              "ENERGY METABOLISM" ,
+              "ECM AND MIGRATION",
+              "NA")
+sum(unique(BTM_groups$SUBGROUP) %in% btm_subgroup_order) == length(btm_subgroup_order)
+
+btm_group_order = c("B CELLS",
+              "T CELLS",
+              "NK CELLS",
+              "NEUTROPHILS",
+              "MONOCYTES",
+              "IFN",
+              "INNATE RESPONSE" ,
+              "SIGNAL TRANSDUCTION" ,
+              "CELL CYCLE",
+              "ENERGY METABOLISM" ,
+              "ECM AND MIGRATION",
+              "NA")
+sum(unique(BTM_groups$GROUP) %in% btm_group_order) == length(btm_group_order)
+
+## colors
+cellcycle_cols =  c("#ABEBC6","#52BE80", "#1E8449")
+inflam_cols = c("#EC7063", "#C07AB7","#F3C3EF", "#A93226")
+myl_cols = c("#AF601A","#F39C12", "#F1C40F")
+na_color = "#84898E"
+lym_col = c("#3498DB","#1A5276","#5B2C6F", "#BB8FCE")
+
+btm_col_table = as.data.frame(unique(BTM_groups$SUBGROUP))
+colnames(btm_col_table) = "SUBGROUP"
+
+btm_col_table <- btm_col_table[match(btm_subgroup_order, btm_col_table$SUBGROUP), ]
+btm_col_table = as.data.frame(btm_col_table)
+colnames(btm_col_table) = "SUBGROUP"
+identical(btm_col_table$SUBGROUP, btm_subgroup_order)
+btm_col_table$color = c(lym_col, myl_cols, inflam_cols,
+                        cellcycle_cols, na_color)
+
+
+btm_col_table = merge(BTM_groups, btm_col_table, by = "SUBGROUP", all.x = TRUE, all.y = FALSE)
+colnames(btm_col_table)[5] = "sg_color"
+btm_col_table$g_color = ifelse(btm_col_table$GROUP == btm_col_table$SUBGROUP, btm_col_table$sg_color, "black")
+btm_col_table$g_color = ifelse(btm_col_table$GROUP == "IFN", "#EC7063",btm_col_table$g_color)
+btm_col_table$g_color = ifelse(btm_col_table$GROUP == "INNATE RESPONSE", "#A93226",btm_col_table$g_color)
+btm_col_table$g_color = ifelse(btm_col_table$SUBGROUP == "PLASMA CELLS", "#3498DB",btm_col_table$g_color)
+
+# saveRDS(btm_col_table, "~/Desktop/Stanford_Classes/Projects/KR04_MVS-NHP/scripts/BTMS/btm_group_subgroup_colors.rds")
+```
+
+## dat obj for gene scores
+```{r}
+arena_dat = (readRDS(file = paste0(datPath,"arena","_timesplit_dat.rds"))$t4)
+corona_dat = (readRDS(file = paste0(datPath,"corona","_timesplit_dat.rds"))$t2)
+filo_dat = (readRDS(file = paste0(datPath,"filo","_timesplit_dat.rds"))$t4)
+flavi_dat = (readRDS(file = paste0(datPath,"flavi","_timesplit_dat.rds"))$t3) 
+ortho_dat = (readRDS(file = paste0(datPath,"ortho","_timesplit_dat.rds"))$t2) 
+```
+
+# path info at signatures
+```{r}
+sig_path_list = readRDS(paste0(datPath,"sig_path_list",".rds"))
+arena_peak = sig_path_list$arena
+corona_peak = sig_path_list$corona
+filo_peak = sig_path_list$filo
+flavi_peak = sig_path_list$flavi
+ortho_peak = sig_path_list$ortho
+```
+
+# geoMean scoring the BTMs
+```{r}
+threshold_fdr_for_geoMean = .2
+es_fdr_for_geoMean = 0
+
+arena_peak$btm_pos = add_score_to_btm(arena_peak$btm_pos, arena_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+arena_peak$btm_neg = add_score_to_btm(arena_peak$btm_neg, arena_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+corona_peak$btm_pos = add_score_to_btm(corona_peak$btm_pos, corona_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+corona_peak$btm_neg = add_score_to_btm(corona_peak$btm_neg, corona_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+filo_peak$btm_pos = add_score_to_btm(filo_peak$btm_pos, filo_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+filo_peak$btm_neg = add_score_to_btm(filo_peak$btm_neg, filo_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+flavi_peak$btm_pos = add_score_to_btm(flavi_peak$btm_pos, flavi_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+flavi_peak$btm_neg = add_score_to_btm(flavi_peak$btm_neg, flavi_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+
+ortho_peak$btm_pos = add_score_to_btm(ortho_peak$btm_pos, ortho_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+ortho_peak$btm_neg = add_score_to_btm(ortho_peak$btm_neg, ortho_dat, fdr.thresh = threshold_fdr_for_geoMean, es.thresh = es_fdr_for_geoMean)
+```
+
+
+# combine data
+```{r}
+all_arena_peak <- rbind(arena_peak$btm_pos, arena_peak$btm_neg) %>% as.data.table
+all_arena_peak = as.data.table(all_arena_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_arena_peak$virus = "Arenaviridae"
+
+all_corona_peak <- rbind(corona_peak$btm_pos, corona_peak$btm_neg) %>% as.data.table
+all_corona_peak = as.data.table(all_corona_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_corona_peak$virus = "Coronaviridae"
+
+all_filo_peak <- rbind(filo_peak$btm_pos, filo_peak$btm_neg) %>% as.data.table
+all_filo_peak = as.data.table(all_filo_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_filo_peak$virus = "Filoviridae"
+
+all_flavi_peak <- rbind(flavi_peak$btm_pos, flavi_peak$btm_neg) %>% as.data.table
+all_flavi_peak = as.data.table(all_flavi_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_flavi_peak$virus = "Flaviviridae"
+
+all_ortho_peak <- rbind(ortho_peak$btm_pos, ortho_peak$btm_neg) %>% as.data.table
+all_ortho_peak = as.data.table(all_ortho_peak)[, .SD[which.min((p.adj))], by=set.name]
+all_ortho_peak$virus = "Orthomyxoviridae"
+```
+
+# combine data
+```{r}
+btm_paths_all = rbind(all_arena_peak, all_corona_peak, all_filo_peak, all_flavi_peak, all_ortho_peak) 
+btm_paths_all$id = (btm_paths_all$virus)
+
+saveRDS(btm_paths_all, file = paste0(datPath,"signature_btm.rds"))
+```
+
+# threshold data
+```{r}
+btm_paths_all = readRDS(paste0(datPath,"signature_btm.rds"))
+# thresholds for the pathways
+btm_p.adj_thresh = 0.3
+threshold_geomean = 0
+min_genes_present = 2
+threshold_geomean_keep = .1
+keep_p.adj_thresh = 0.1 
+
+## threshold the full data
+btm_paths_all_threshold <- btm_paths_all[ p.adj < btm_p.adj_thresh & 
+                                              abs(score) > threshold_geomean &
+                                            relevant.genes >= min_genes_present ] 
+dim(btm_paths_all_threshold)
+# btm_paths_all$log10_padj = -log10(btm_paths_all$p.adj)
+# btm_paths_all$log10_padj_dir = ifelse(btm_paths_all$score < 0, btm_paths_all$log10_padj * -1, btm_paths_all$log10_padj)
+
+# threshold pathways to keep
+paths_to_keep = unique(btm_paths_all[btm_paths_all$p.adj < keep_p.adj_thresh & abs(btm_paths_all$score) >= threshold_geomean_keep,]$set.name)
+length(paths_to_keep)
+```
+
+
+# method 1: keep all pathways that pass the threshold only
+1. heatmap
+
+set up colors
+# no NAs
+```{r}
+btm_col_table = readRDS("~/Desktop/Stanford_Classes/Projects/KR04_MVS-NHP/scripts/BTMS/btm_group_subgroup_colors.rds")
+
+## pick group or subgroup in this section
+btm_col_table$Group = btm_col_table$GROUP 
+btm_col_table$Group_color = btm_col_table$g_color 
+btm_col_table_noNA = btm_col_table[btm_col_table$Group != "NA",]
+paths_to_keep_noNA = paths_to_keep[paths_to_keep %in% btm_col_table_noNA$NAME]
+btm_order_noNA = btm_group_order[btm_group_order != "NA"]
+
+```
+
+```{r}
+keeper_paths = paths_to_keep_noNA
+color_table = btm_col_table_noNA
+btm_order = btm_order_noNA
+btm_paths_dat = btm_paths_all_threshold
+  
+btm_paths_dat$id = btm_paths_dat$virus
+
+btms_all_score_m1 = btm_paths_dat[,c("set.name", "id", "score")]
+
+btms_all_score_m1 = btms_all_score_m1[btms_all_score_m1$set.name %in% keeper_paths,]
+
+# score
+btms_all_score_m1_wide <- dcast(btms_all_score_m1[,c("set.name", "id", "score")], set.name ~ id, value.var="score") %>% as.data.frame()
+rownames(btms_all_score_m1_wide) = btms_all_score_m1_wide$set.name
+btms_all_score_m1_wide$set.name = NULL
+
+btms_all_score_m1_wide[is.na(btms_all_score_m1_wide)] = 0
+Heatmap(btms_all_score_m1_wide, row_split = 3, row_title = NULL,row_gap = unit(2, "mm"))
+```
+
+## fix orders
+```{r}
+color_table = btm_col_table_noNA
+btm_order = btm_order_noNA
+
+color_table = color_table[color_table$NAME %in% rownames(btms_all_score_m1_wide),]
+color_table = color_table %>% arrange(factor(Group, levels = btm_order))
+
+btms_all_score_m1_wide$paths = rownames(btms_all_score_m1_wide)
+btms_all_score_m1_wide <- btms_all_score_m1_wide[match(color_table$NAME, btms_all_score_m1_wide$paths), ]  
+
+btms_all_score_m1_wide$paths = NULL
+
+color_table_unique = color_table[,c("Group","Group_color")] %>% unique()
+
+## if things are removed!
+btm_order_cur = btm_order[btm_order %in% color_table_unique$Group]
+color_table_unique <- color_table_unique[match(btm_order_cur, color_table_unique$Group), ]  
+```
+
+2. circos of method 1
+```{r}
+# CHECKS
+identical(rownames(btms_all_score_m1_wide), color_table$NAME)
+t3_links_cols <- color_table$Group_color
+
+identical(color_table_unique$Group, btm_order_cur)
+legend_btm_cols = color_table_unique$Group_color
+# CHECKS DONE
+```
+
+
+```{r}
+set.seed(4)
+mycolors_vac = c("#8C2B0E", "#C5692D", "#FEB359", "#435F90",  "#B47E83")
+
+## LEGEND
+lgd_points = Legend(labels = c("up", "down"), 
+    legend_gp = gpar(fill = c('#FF0000', '#0000FF')), title_position = "topleft",
+    title = "Track2", border = "black")
+
+lgd_lines = Legend(labels = btm_order_cur,
+    legend_gp = gpar(fill = legend_btm_cols), title_position = "topleft",
+    title = "Track3 & Links", border = "black")
+lgd_list_vertical = packLegend(lgd_points, lgd_lines)
+lgd_list_vertical
+lgd_list_horizontal = packLegend(lgd_points, lgd_lines,direction = "horizontal")
+lgd_list_horizontal
+
+n_path = nrow(btms_all_score_m1_wide)
+# CIRCOS START
+circos.par("track.height" = 0.1)
+circos.initialize(factors = c(rep("Arenaviridae",n_path),rep("Coronaviridae",n_path),rep("Filoviridae",n_path),rep("Flaviviridae",n_path),rep("Orthomyxoviridae",n_path)), xlim = c(0, n_path))
+circos.track(ylim = c(0, 1),  track.height=0.15, bg.col = mycolors_vac, bg.border=NA, panel.fun=function(x, y) {
+         circos.text(col = "white",CELL_META$xcenter, CELL_META$ycenter,  CELL_META$sector.index, CELL_META$sector.index, 1, facing = "bending.outside", niceFacing=TRUE, cex = 1)
+  })
+
+circos.track(ylim=c(min(btms_all_score_m1_wide), max(btms_all_score_m1_wide)),  track.height=0.15,  panel.fun=function(x, y) {
+    value=btms_all_score_m1_wide[,CELL_META$sector.numeric.index]
+    circos.barplot(value, 1:nrow(btms_all_score_m1_wide),
+                   col = ifelse(value > 0, '#FF0000', '#0000FF'), border = NA)
+  })
+
+circos.track(ylim = c(0, 1), track.height=0.15,panel.fun = function(x, y) {
+    xlim = CELL_META$xlim
+    ylim = CELL_META$ylim
+    breaks = seq(xlim[1], xlim[2], by = 1)
+    n_breaks = length(breaks)
+    circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
+                breaks[-1], rep(ylim[2], n_breaks - 1),
+                col = t3_links_cols, border = NA)
+})
+
+for (i in sample(1:nrow(btms_all_score_m1_wide))) {
+  dat_row = btms_all_score_m1_wide[i,]
+  for (n in c(1:4)) {
+    for (k in c((n+1):5)) {
+        if (dat_row[[n]] > 0){
+          if(dat_row[[k]] > 0 ) { 
+    circos.link(names(dat_row)[n], i, names(dat_row)[k], i, col = t3_links_cols[i])
+        }
+      }
+    }
+  }
+}
+
+png(paste0(fig3_path,"3B_legend_sigs.png"),width=2.7,height=2.7,units="in",res=1200)
+draw(lgd_list_horizontal, x = unit(4, "mm"), y = unit(4, "mm"), just = c("left", "bottom"))
+dev.off()
+```
+# legend only
+```{r}
+png(paste0(fig3_path,"3B_legend_sigs.png"),width=2,height=4,units="in",res=1200)
+plot(draw(lgd_list_vertical, x = unit(4, "mm"), y = unit(4, "mm"), just = c("left", "bottom")))
+dev.off()
+```
+
+# circos only - up
+```{R}
+png(paste0(fig3_path,"3D_up_sigs.png"),width=2.7,height=2.7,units="in",res=1200)
+
+set.seed(4)
+mycolors_vac = c("#8C2B0E", "#C5692D", "#FEB359", "#435F90", "#B47E83")
+n_path = nrow(btms_all_score_m1_wide)
+# CIRCOS START
+circos.par("track.height" = 0.1)
+circos.initialize(factors = c(rep("Arena Sig.",n_path),rep("Corona Sig.",n_path),rep("Filo Sig.",n_path),rep("Flavi Sig.",n_path),rep("Ortho Sig.",n_path)), xlim = c(0, n_path))
+circos.track(ylim = c(0, 1),  track.height=0.15, bg.col = mycolors_vac, bg.border=NA, panel.fun=function(x, y) {
+         circos.text(col = "white",CELL_META$xcenter, CELL_META$ycenter,  CELL_META$sector.index, CELL_META$sector.index, 1, facing = "bending.outside", niceFacing=TRUE, cex = 1)
+  })
+
+circos.track(ylim=c(min(btms_all_score_m1_wide), max(btms_all_score_m1_wide)),  track.height=0.15,panel.fun=function(x, y) {
+    value=btms_all_score_m1_wide[,CELL_META$sector.numeric.index]
+    circos.barplot(value, 1:nrow(btms_all_score_m1_wide),
+                   col = ifelse(value > 0, '#FF0000', '#0000FF'), border = NA)
+  })
+
+circos.track(ylim = c(0, 1), track.height=0.15,panel.fun = function(x, y) {
+    xlim = CELL_META$xlim
+    ylim = CELL_META$ylim
+    breaks = seq(xlim[1], xlim[2], by = 1)
+    n_breaks = length(breaks)
+    circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
+                breaks[-1], rep(ylim[2], n_breaks - 1),
+                col = t3_links_cols, border = NA)
+})
+colnames(btms_all_score_m1_wide) = c("Arena Sig.","Corona Sig.","Filo Sig.","Flavi Sig.","Ortho Sig.")
+for (i in sample(1:nrow(btms_all_score_m1_wide))) {
+  dat_row = btms_all_score_m1_wide[i,]
+  for (n in c(1:4)) {
+    for (k in c((n+1):5)) {
+        if (dat_row[[n]] > 0){
+          if(dat_row[[k]] > 0 ) { 
+    circos.link(names(dat_row)[n], i, names(dat_row)[k], i, col = t3_links_cols[i])
+        }
+      }
+    }
+  }
+}
+dev.off()
+```
+
+# circos only - down
+```{R}
+png(paste0(fig3_path,"S3D_down_sigs.png"),width=4,height=4,units="in",res=1200)
+
+set.seed(4)
+mycolors_vac = c("#8C2B0E", "#C5692D", "#FEB359", "#435F90",  "#B47E83")
+n_path = nrow(btms_all_score_m1_wide)
+
+
+# CIRCOS START
+circos.par("track.height" = 0.1)
+circos.initialize(factors = c(rep("Arena Sig.",n_path),rep("Corona Sig.",n_path),rep("Filo Sig.",n_path),rep("Flavi Sig.",n_path),rep("Ortho Sig.",n_path)), xlim = c(0, n_path))
+circos.track(ylim = c(0, 1),  track.height=0.15, bg.col = mycolors_vac, bg.border=NA, panel.fun=function(x, y) {
+         circos.text(col = "white",CELL_META$xcenter, CELL_META$ycenter,  CELL_META$sector.index, CELL_META$sector.index, 1, facing = "bending.outside", niceFacing=TRUE, cex = 1)
+  })
+
+circos.track(ylim=c(min(btms_all_score_m1_wide), max(btms_all_score_m1_wide)),  panel.fun=function(x, y) {
+    value=btms_all_score_m1_wide[,CELL_META$sector.numeric.index]
+    circos.barplot(value, 1:nrow(btms_all_score_m1_wide),
+                   col = ifelse(value > 0, '#FF0000', '#0000FF'), border = NA)
+  })
+
+circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
+    xlim = CELL_META$xlim
+    ylim = CELL_META$ylim
+    breaks = seq(xlim[1], xlim[2], by = 1)
+    n_breaks = length(breaks)
+    circos.rect(breaks[-n_breaks], rep(ylim[1], n_breaks - 1),
+                breaks[-1], rep(ylim[2], n_breaks - 1),
+                col = t3_links_cols, border = NA)
+})
+
+for (i in sample(1:nrow(btms_all_score_m1_wide))) {
+  dat_row = btms_all_score_m1_wide[i,]
+  for (n in c(1:4)) {
+    for (k in c((n+1):5)) {
+        if (dat_row[[n]] < 0){
+          if(dat_row[[k]] < 0 ) { 
+    circos.link(names(dat_row)[n], i, names(dat_row)[k], i, col = t3_links_cols[i])
+        }
+      }
+    }
+  }
+}
+dev.off()
+```
+
+## BAR GRAPHS
+#bar graph by link colors
+
+```{r}
+#create data frame with 0 rows and 3 columns
+df_links <- data.frame(matrix(ncol = 4, nrow = 0))
+colnames(df_links) <- c("path_name", "vir1", "vir2", "dir")
+
+for (i in 1:nrow(btms_all_score_m1_wide)) {
+  dat_row = btms_all_score_m1_wide[i,]
+  name = rownames(btms_all_score_m1_wide)[i]
+  for (n in c(1:4)) {
+    for (k in c((n+1):5)) {
+      vir1 = colnames(dat_row)[n]
+      vir2 = colnames(dat_row)[k]
+        if (dat_row[[n]] > 0){
+          if(dat_row[[k]] > 0 ) { 
+            dir = "up"
+            row_to_add = c(name, vir1, vir2, dir)
+            names(row_to_add) = c("path_name", "vir1", "vir2", "dir")
+            df_links = rbind(df_links, row_to_add)
+          }
+        }
+        else if (dat_row[[n]] < 0){
+          if(dat_row[[k]] < 0 ) { 
+            dir = "down"
+            row_to_add = c(name, vir1, vir2, dir)
+            names(row_to_add) = c("path_name", "vir1", "vir2", "dir")
+            df_links = rbind(df_links, row_to_add)
+          }
+        }
+    }
+  }
+}
+
+colnames(df_links) <- c("NAME", "vir1", "vir2", "dir")
+
+df_links = merge(df_links, color_table[,c("NAME","Group")], by = "NAME", all.x = TRUE, all.y = FALSE)
+
+df_vir_long <- melt(df_links, id.vars=c("NAME", "dir","Group"))
+df_vir_long$variable = NULL
+colnames(df_vir_long)[4] = "Virus"
+
+vir_counts = df_vir_long %>% dplyr::count(Group, dir, Virus)
+vir_counts$type = ifelse(vir_counts$dir == "up", "Positively Correlated Links", "Negatively Correlated Links")
+vir_counts$Group = factor(vir_counts$Group, levels = btm_order_cur)
+vir_counts$type = factor(vir_counts$type, levels = c("Positively Correlated Links", "Negatively Correlated Links"))
+
+btm_colors = legend_btm_cols
+names(btm_colors) = btm_order_cur
+sig_colors = viral_family_colors
+names(sig_colors) = unique(vir_counts$Virus)
+plot5 = ggplot(vir_counts, aes(Group, log2(n), fill = Virus)) + geom_bar(position="stack", stat="identity") + theme_bw()  + scale_fill_manual(values = sig_colors) + ylab("# of Links") + xlab("GROUPS")+ theme(axis.text.x = element_text(angle = 45, hjust=1)) + facet_wrap(~type)+ theme(text = element_text(size = 20)) 
+plot5
+ggsave(plot5, filename = paste0(fig3_path,"3Bd_circos_link_counts_sigs.png"), width = 7.5, height = 6)
+```
+
+```{r}
+btms_all_score_m1_wide_granular = btms_all_score_m1_wide
+btms_all_score_m1_wide_granular$NAME = rownames(btms_all_score_m1_wide_granular)
+btms_all_score_m1_wide_granular = merge(btms_all_score_m1_wide_granular, color_table[,c("NAME","Group")], by = "NAME", all.x = TRUE, all.y = FALSE)
+btms_all_score_m1_wide_granular$NAME = NULL
+btms_all_score_m1_wide_granular_long <- gather(btms_all_score_m1_wide_granular, condition, measurement, `Arena Sig.`:`Ortho Sig.`, factor_key=TRUE)
+btms_all_score_m1_wide_granular_long = btms_all_score_m1_wide_granular_long[round(btms_all_score_m1_wide_granular_long$measurement, 4) != 0,]
+btms_all_score_m1_wide_granular_long$dir = ifelse(btms_all_score_m1_wide_granular_long$measurement > 0, "pos","neg")
+
+btm_virus_count = btms_all_score_m1_wide_granular_long %>% dplyr::count(Group, condition, dir)
+# View(btm_virus_count)
+btm_virus_count$dir = ifelse(btm_virus_count$dir == "neg","Enriched in DOWN genes", "Enriched in UP genes")
+btm_virus_count$dir = factor(btm_virus_count$dir, levels = c("Enriched in UP genes","Enriched in DOWN genes"))
+plot5 = ggplot(btm_virus_count, aes(condition, n, fill = Group)) + geom_bar(position="stack", stat="identity") + theme_bw() + ylab("# of Modules") + xlab("Virus")+ theme(axis.text.x = element_text(angle = 45, hjust=1)) + facet_wrap(~dir) + scale_fill_manual(values = btm_colors)+ theme(text = element_text(size = 18)) 
+plot5
+ggsave(plot5, filename = paste0(fig3_path,"3Be_circos_paths_sigs.png"), width = 10, height = 6)
+```
+
+## combine groups only
+```{r}
+link_count = df_links %>% dplyr::count(Group, dir)
+btm_colors = legend_btm_cols
+names(btm_colors) = btm_order_cur
+
+link_count$type = ifelse(link_count$dir == "up", "Positively Correlated Links", "Negatively Correlated Links")
+
+link_count$Group = factor(link_count$Group, levels = btm_order_cur)
+link_count$type = factor(link_count$type, levels = c("Positively Correlated Links", "Negatively Correlated Links"))
+
+link_count_pos = link_count[link_count$dir == "up",]
+link_count_neg = link_count[link_count$dir != "up",]
+
+plot4 = ggplot(link_count, aes(Group, log(n), fill = Group)) + geom_bar(stat="identity") + theme_bw()  +  scale_fill_manual(values = btm_colors) + ylab("# of Links (log2)") + xlab("GROUPS")+ theme(axis.text.x = element_text(angle = 45, hjust=1)) + facet_wrap(~type)+ theme(legend.position = "none") 
+
+plot4
+ggsave(plot4, filename = paste0(fig3_path,"3Bc_circos_link_counts_sigs.png"), width = 10, height = 6)
+
+plot6 = ggplot(link_count, aes(Group, (n), fill = Group)) + geom_bar(stat="identity") + theme_bw()  +  scale_fill_manual(values = btm_colors) + ylab("# of Links") + xlab("GROUPS")+ theme(axis.text.x = element_text(angle = 45, hjust=1)) + facet_wrap(~type)+ theme(legend.position = "none") 
+
+plot6
+ggsave(plot6, filename = paste0(fig3_path,"3Be_circos_link_counts_sigs.png"), width = 6, height = 4)
+```

@@ -1,0 +1,459 @@
+---
+title: "01_3A"
+output: html_document
+---
+---
+title: "Generating Figure 3A"
+output: html_document
+---
+Thresholding DEGs: meta_fdr < .05, effect size >= .1, present in at least 2 datasets (Flavi broken into 4) -- purpose to look for BROAD DEGs for discovery
+1. Generated 14a_timecats_list.rds - list of objects broken up by time_category
+2. Generated 15a_viruslist_t1, 15a_viruslist_t2 etc. - list of time category objects broken by virus
+3. virus..._timesplit_dat.rds = list of timepoint splits per virus (reverse of 2)
+4. Generated 3A_deg_count_table.rds, DEGs by virus x time category
+5. Generated 3A figure
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+# library(DESeq2)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+datTable = paste0(path, "data/data_tables/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/subset_dataobjects.R"))
+fig_path = paste0(path,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+## starting input
+```{r}
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+```
+
+```{r}
+## pick the earliest day in the time category
+subset_data_by_earliest_time = function(object) {
+  data_out = list()
+  object = fix_time_cat(object)
+  for (i in 1:length(names(object$originalData))) {
+    dataset = object$originalData[[i]]
+    pheno = dataset$pheno
+    name = unname(unlist(unique(pheno[colname])))
+    df_one = df[df$obj_name == name,]
+    df_one$ani_day = paste0(df_one$animal,"_",df_one$day)
+    pheno$ani_day = paste0(pheno$animal,"_",pheno$day)
+
+    ## subset pheno by animal+time
+    pheno_sub = pheno[pheno$ani_day %in% df_one$ani_day,]
+    print(paste0(name,"_",nrow(pheno),"_",nrow(pheno_sub)))
+    ## subset by dataset by pheno
+    dataset <- subsetOriginalData(dataset, 
+                                  keepMe= c(rownames(pheno_sub)))
+    message(checkDataObject(dataset, "Dataset"))
+    object$originalData[[i]] = dataset
+    }
+  return(object)
+}
+```
+
+## subset data by time_category
+```{r}
+dat_t1 = subset_by_timecat(dat, "t1")
+dat_t2 = subset_by_timecat(dat, "t2")
+dat_t3 = subset_by_timecat(dat, "t3")
+dat_t4 = subset_by_timecat(dat, "t4")
+dat_t5 = subset_by_timecat(dat, "t5")
+
+timecat_list = list(dat_t1, dat_t2, dat_t3, dat_t4, dat_t5)
+names(timecat_list) = c("t1", "t2", "t3", "t4", "t5")
+saveRDS(timecat_list, file = paste0(datPath, "14a_timecats_list.rds"))
+```
+
+
+```{r}
+timecat_list = readRDS(paste0(datPath, "14a_timecats_list.rds"))
+dat_t1 = timecat_list$t1 %>% remove_empties(time = "t1")
+dat_t2 = timecat_list$t2 %>% remove_empties(time = "t2")
+dat_t3 = timecat_list$t3 %>% remove_empties(time = "t3")
+dat_t4 = timecat_list$t4 %>% remove_empties(time = "t4")
+dat_t5 = timecat_list$t5 %>% remove_empties(time = "t5")
+
+arena_dat = reformat(dat_t1, arena,  reMetanalaysis = TRUE)
+arena_dat  = fix_formattedname(arena_dat)
+corona_dat = reformat(dat_t1, corona,  reMetanalaysis = TRUE)
+corona_dat  = fix_formattedname(corona_dat)
+filo_dat = reformat(dat_t1, filo,  reMetanalaysis = TRUE)
+filo_dat  = fix_formattedname(filo_dat)
+flavi_dat = reformat(dat_t1, flavi,  reMetanalaysis = TRUE)
+flavi_dat  = fix_formattedname(flavi_dat)
+ortho_dat = reformat(dat_t1, ortho,  reMetanalaysis = TRUE)
+ortho_dat  = fix_formattedname(ortho_dat)
+
+virus_dat_list_t1 = list(arena_dat, corona_dat, filo_dat, flavi_dat, ortho_dat)
+names(virus_dat_list_t1) = c("arena", "corona", "filo", "flavi", "ortho")
+saveRDS(virus_dat_list_t1, file = paste0(datPath, "15a_viruslist_t1.rds"))
+
+
+
+arena_dat = reformat(dat_t2, arena,  reMetanalaysis = TRUE)
+arena_dat  = fix_formattedname(arena_dat)
+corona_dat = reformat(dat_t2, corona,  reMetanalaysis = TRUE)
+corona_dat  = fix_formattedname(corona_dat)
+filo_dat = reformat(dat_t2, filo,  reMetanalaysis = TRUE)
+filo_dat  = fix_formattedname(filo_dat)
+flavi_dat = reformat(dat_t2, flavi,  reMetanalaysis = TRUE)
+flavi_dat  = fix_formattedname(flavi_dat)
+ortho_dat = reformat(dat_t2, ortho,  reMetanalaysis = TRUE)
+ortho_dat  = fix_formattedname(ortho_dat)
+
+virus_dat_list_t2 = list(arena_dat, corona_dat, filo_dat, flavi_dat, ortho_dat)
+names(virus_dat_list_t2) = c("arena", "corona", "filo", "flavi", "ortho")
+saveRDS(virus_dat_list_t2, file = paste0(datPath, "15a_viruslist_t2.rds"))
+
+
+arena_dat = reformat(dat_t3, arena,  reMetanalaysis = TRUE)
+arena_dat  = fix_formattedname(arena_dat)
+corona_dat = reformat(dat_t3, corona,  reMetanalaysis = TRUE)
+corona_dat  = fix_formattedname(corona_dat)
+filo_dat = reformat(dat_t3, filo,  reMetanalaysis = TRUE)
+filo_dat  = fix_formattedname(filo_dat)
+flavi_dat = reformat(dat_t3, flavi,  reMetanalaysis = TRUE)
+flavi_dat  = fix_formattedname(flavi_dat)
+ortho_dat = reformat(dat_t3, ortho,  reMetanalaysis = TRUE)
+ortho_dat  = fix_formattedname(ortho_dat)
+
+virus_dat_list_t3 = list(arena_dat, corona_dat, filo_dat, flavi_dat, ortho_dat)
+names(virus_dat_list_t3) = c("arena", "corona", "filo", "flavi", "ortho")
+saveRDS(virus_dat_list_t3, file = paste0(datPath, "15a_viruslist_t3.rds"))
+
+arena_dat = reformat(dat_t4, arena,  reMetanalaysis = TRUE)
+arena_dat  = fix_formattedname(arena_dat)
+corona_dat = reformat(dat_t4, corona,  reMetanalaysis = TRUE)
+corona_dat  = fix_formattedname(corona_dat)
+filo_dat = reformat(dat_t4, filo,  reMetanalaysis = TRUE)
+filo_dat  = fix_formattedname(filo_dat)
+# flavi_dat = reformat(dat_t4, flavi,  reMetanalaysis = TRUE)
+# flavi_dat  = fix_formattedname(flavi_dat)
+# ortho_dat = reformat(dat_t4, ortho,  reMetanalaysis = TRUE)
+# ortho_dat  = fix_formattedname(ortho_dat)
+
+virus_dat_list_t4 = list(arena_dat, corona_dat, filo_dat)
+names(virus_dat_list_t4) = c("arena", "corona", "filo")
+saveRDS(virus_dat_list_t4, file = paste0(datPath, "15a_viruslist_t4.rds"))
+
+
+arena_dat = reformat(dat_t5, arena,  reMetanalaysis = TRUE)
+arena_dat  = fix_formattedname(arena_dat)
+corona_dat = reformat(dat_t5, corona,  reMetanalaysis = TRUE)
+corona_dat  = fix_formattedname(corona_dat)
+filo_dat = reformat(dat_t5, filo,  reMetanalaysis = TRUE)
+flavi_dat = reformat(dat_t5, flavi,  reMetanalaysis = TRUE)
+flavi_dat  = fix_formattedname(flavi_dat)
+filo_dat  = fix_formattedname(filo_dat)
+ortho_dat = reformat(dat_t5, ortho,  reMetanalaysis = TRUE)
+ortho_dat  = fix_formattedname(ortho_dat)
+
+virus_dat_list_t5 = list(arena_dat, corona_dat, filo_dat, flavi_dat, ortho_dat)
+names(virus_dat_list_t5) = c("arena", "corona", "filo","flavi",  "ortho")
+saveRDS(virus_dat_list_t5, file = paste0(datPath, "15a_viruslist_t5.rds"))
+```
+
+```{r}
+virus_dat_list_t1 = readRDS(paste0(datPath, "15a_viruslist_t1.rds"))
+virus_dat_list_t2 = readRDS(paste0(datPath, "15a_viruslist_t2.rds"))
+virus_dat_list_t3 = readRDS(paste0(datPath, "15a_viruslist_t3.rds"))
+virus_dat_list_t4 = readRDS(paste0(datPath, "15a_viruslist_t4.rds"))
+virus_dat_list_t5 = readRDS(paste0(datPath, "15a_viruslist_t5.rds"))
+
+arena_t1_dat = virus_dat_list_t1$arena
+arena_t2_dat = virus_dat_list_t2$arena
+arena_t3_dat = virus_dat_list_t3$arena
+arena_t4_dat = virus_dat_list_t4$arena
+arena_t5_dat = virus_dat_list_t5$arena
+
+corona_t1_dat = virus_dat_list_t1$corona
+corona_t2_dat = virus_dat_list_t2$corona
+corona_t3_dat = virus_dat_list_t3$corona
+corona_t4_dat = virus_dat_list_t4$corona
+corona_t5_dat = virus_dat_list_t5$corona
+
+filo_t1_dat = virus_dat_list_t1$filo
+filo_t2_dat = virus_dat_list_t2$filo
+filo_t3_dat = virus_dat_list_t3$filo
+filo_t4_dat = virus_dat_list_t4$filo
+filo_t5_dat = virus_dat_list_t5$filo
+
+flavi_t1_dat = virus_dat_list_t1$flavi
+flavi_t2_dat = virus_dat_list_t2$flavi
+flavi_t3_dat = virus_dat_list_t3$flavi
+flavi_t4_dat = virus_dat_list_t4$flavi
+flavi_t5_dat = virus_dat_list_t5$flavi
+
+ortho_t1_dat = virus_dat_list_t1$ortho
+ortho_t2_dat = virus_dat_list_t2$ortho
+ortho_t3_dat = virus_dat_list_t3$ortho
+ortho_t4_dat = virus_dat_list_t4$ortho
+ortho_t5_dat = virus_dat_list_t5$ortho
+```
+
+
+
+```{r}
+padj_thresh = 0.05 ## threshold for fdr threshold for usable genes 
+es_thresh = 0.1
+min_studies = 2
+
+## cleaning pooled results for deg count
+threholding_deg_data = function(dat_obj, padj.threshold = padj_thresh, es.threshold = es_thresh, studies.threshold = min_studies, virus = "", time_cat = "") {
+  pooled_results_df = dat_obj$metaAnalysis$pooledResults
+  pooled_results_df$direction = ifelse(pooled_results_df$effectSize > 0, "pos", "neg")
+  pooled_results_df$gene = rownames(pooled_results_df)
+  pooled_results_df = pooled_results_df[pooled_results_df$effectSizeFDR < padj.threshold & abs(pooled_results_df$effectSize) >= es.threshold & pooled_results_df$numStudies >= studies.threshold,]
+  pooled_results_df = as.data.frame(pooled_results_df)
+  pooled_results_df$Virus = virus
+  pooled_results_df$time_cat = time_cat
+  print(table(pooled_results_df$direction))
+  return(pooled_results_df)
+}
+```
+
+## subsetting pooled results
+```{r}
+# arena
+arena_results_t1 = threholding_deg_data(arena_t1_dat, virus = "Arenaviridae",time_cat = "T1")
+arena_results_t2 = threholding_deg_data(arena_t2_dat, virus = "Arenaviridae",time_cat = "T2")
+arena_results_t3 = threholding_deg_data(arena_t3_dat, virus = "Arenaviridae",time_cat = "T3")
+arena_results_t4 = threholding_deg_data(arena_t4_dat, virus = "Arenaviridae",time_cat = "T4")
+# arena_results_t5 = threholding_deg_data(arena_t5_dat, virus = "Arenaviridae",time_cat = "T5")
+
+# corona
+corona_results_t1 = threholding_deg_data(corona_t1_dat, virus = "Coronaviridae",time_cat = "T1")
+corona_results_t2 = threholding_deg_data(corona_t2_dat, virus = "Coronaviridae",time_cat = "T2")
+corona_results_t3 = threholding_deg_data(corona_t3_dat, virus = "Coronaviridae",time_cat = "T3")
+# corona_results_t4 = threholding_deg_data(corona_t4_dat, virus = "Coronaviridae",time_cat = "T4")
+corona_results_t5 = threholding_deg_data(corona_t5_dat, virus = "Coronaviridae",time_cat = "T5")
+
+# filo
+filo_results_t1 = threholding_deg_data(filo_t1_dat, virus = "Filoviridae",time_cat = "T1")
+filo_results_t2 = threholding_deg_data(filo_t2_dat, virus = "Filoviridae",time_cat = "T2")
+filo_results_t3 = threholding_deg_data(filo_t3_dat, virus = "Filoviridae",time_cat = "T3")
+filo_results_t4 = threholding_deg_data(filo_t4_dat, virus = "Filoviridae",time_cat = "T4")
+# filo_results_t5 = threholding_deg_data(filo_t5_dat, virus = "Filoviridae",time_cat = "T5")
+
+# flavi
+flavi_results_t1 = threholding_deg_data(flavi_t1_dat, virus = "Flavivirdae",time_cat = "T1")
+flavi_results_t2 = threholding_deg_data(flavi_t2_dat, virus = "Flavivirdae",time_cat = "T2")
+flavi_results_t3 = threholding_deg_data(flavi_t3_dat, virus = "Flavivirdae",time_cat = "T3")
+# flavi_results_t4 = threholding_deg_data(flavi_t4_dat) # no data
+# flavi_results_t5 = threholding_deg_data(flavi_t5_dat, virus = "Flavivirdae",time_cat = "T5")
+
+# ortho
+# ortho_results_t1 = threholding_deg_data(ortho_t1_dat, virus = "Orthomyxoviridae",time_cat = "T1")
+ortho_results_t2 = threholding_deg_data(ortho_t2_dat, virus = "Orthomyxoviridae",time_cat = "T2")
+ortho_results_t3 = threholding_deg_data(ortho_t3_dat, virus = "Orthomyxoviridae",time_cat = "T3")
+# ortho_results_t4 = threholding_deg_data(ortho_t4_dat) # no data
+# ortho_results_t5 = threholding_deg_data(ortho_t5_dat, virus = "Orthomyxoviridae",time_cat = "T5")
+
+
+all_data = rbind(arena_results_t1,arena_results_t2,arena_results_t3,arena_results_t4,
+                 corona_results_t1,corona_results_t2,corona_results_t3,corona_results_t5,
+                 filo_results_t1,filo_results_t2,filo_results_t3,filo_results_t4,
+                 flavi_results_t1,flavi_results_t2,flavi_results_t3,
+                 ortho_results_t2,ortho_results_t3)
+write.csv(all_data, file = paste0(datTable,"stable4_degs.csv"))
+```
+
+
+
+############### generate DEG count table
+
+```{r}
+cols = c("virus", "up", "down","total","dataset_num", "time_cat")
+arena_df <- data.frame(matrix(ncol = 6, nrow = 0))
+colnames(arena_df) <- cols
+
+virus = "Arenaviridae"
+arena_list_pooled = list(arena_results_t1, arena_results_t2, arena_results_t3,arena_results_t4)#,arena_results_t5)
+names(arena_list_pooled) = c("t1","t2","t3","t4")#,"t5")
+arena_list_dat = list(arena_t1_dat, arena_t2_dat, arena_t3_dat,arena_t4_dat)#,arena_t5_dat)
+
+for (i in c(1:length(arena_list_pooled))){
+  item = arena_list_pooled[[i]]
+  num_dfs = length(arena_list_dat[[i]]$originalData)
+  time_name = names(arena_list_pooled)[i]
+  row = c(virus,sum(item$direction == "pos"), sum(item$direction == "neg"), nrow(item), num_dfs, time_name)
+  arena_df = rbind(arena_df, row)
+  colnames(arena_df) = cols
+}
+
+corona_df <- data.frame(matrix(ncol = 6, nrow = 0))
+colnames(corona_df) <- cols
+
+virus = "Coronaviridae"
+corona_list_pooled = list(corona_results_t1, corona_results_t2, corona_results_t3,corona_results_t5)#corona_results_t4,
+names(corona_list_pooled) = c("t1","t2","t3","t5")# v
+corona_list_dat = list(corona_t1_dat, corona_t2_dat, corona_t3_dat,corona_t5_dat) #,corona_t4_dat
+
+for (i in c(1:length(corona_list_pooled))){
+  item = corona_list_pooled[[i]]
+  num_dfs = length(corona_list_dat[[i]]$originalData)
+  time_name = names(corona_list_pooled)[i]
+  row = c(virus,sum(item$direction == "pos"), sum(item$direction == "neg"), nrow(item), num_dfs, time_name)
+  corona_df = rbind(corona_df, row)
+  colnames(corona_df) = cols
+}
+
+
+filo_df <- data.frame(matrix(ncol = 6, nrow = 0))
+colnames(filo_df) <- cols
+
+virus = "Filoviridae"
+filo_list_pooled = list(filo_results_t1, filo_results_t2, filo_results_t3,filo_results_t4) #,filo_results_t5)
+names(filo_list_pooled) = c("t1","t2","t3","t4") #,"t5")
+filo_list_dat = list(filo_t1_dat, filo_t2_dat, filo_t3_dat,filo_t4_dat)# ,filo_t5_dat)
+
+for (i in c(1:length(filo_list_pooled))){
+  item = filo_list_pooled[[i]]
+  num_dfs = length(filo_list_dat[[i]]$originalData)
+  time_name = names(filo_list_pooled)[i]
+  row = c(virus,sum(item$direction == "pos"), sum(item$direction == "neg"), nrow(item), num_dfs, time_name)
+  filo_df = rbind(filo_df, row)
+  colnames(filo_df) = cols
+}
+
+
+flavi_df <- data.frame(matrix(ncol = 6, nrow = 0))
+colnames(flavi_df) <- cols
+
+virus = "Flaviviridae"
+flavi_list_pooled = list(flavi_results_t1, flavi_results_t2, flavi_results_t3)#,flavi_results_t5)
+names(flavi_list_pooled) = c("t1","t2","t3")#,"t5")
+flavi_list_dat = list(flavi_t1_dat, flavi_t2_dat, flavi_t3_dat)#,flavi_t5_dat)
+
+for (i in c(1:length(flavi_list_pooled))){
+  item = flavi_list_pooled[[i]]
+  num_dfs = length(flavi_list_dat[[i]]$originalData)
+  time_name = names(flavi_list_pooled)[i]
+  row = c(virus,sum(item$direction == "pos"), sum(item$direction == "neg"), nrow(item), num_dfs, time_name)
+  flavi_df = rbind(flavi_df, row)
+  colnames(flavi_df) = cols
+}
+
+
+
+ortho_df <- data.frame(matrix(ncol = 6, nrow = 0))
+colnames(ortho_df) <- cols
+
+virus = "Orthomyxoviridae"
+ortho_list_pooled = list( ortho_results_t2, ortho_results_t3)#,ortho_results_t5) #ortho_results_t1,
+names(ortho_list_pooled) = c("t2","t3")#,"t5") #"t1",
+ortho_list_dat = list( ortho_t2_dat, ortho_t3_dat)#,ortho_t5_dat) #ortho_t1_dat,
+
+for (i in c(1:length(ortho_list_pooled))){
+  item = ortho_list_pooled[[i]]
+  num_dfs = length(ortho_list_dat[[i]]$originalData)
+  time_name = names(ortho_list_pooled)[i]
+  row = c(virus,sum(item$direction == "pos"), sum(item$direction == "neg"), nrow(item), num_dfs, time_name)
+  ortho_df = rbind(ortho_df, row)
+  colnames(ortho_df) = cols
+}
+
+
+
+
+all_df = rbind(arena_df, corona_df, filo_df, flavi_df, ortho_df)
+all_df$def_padj_thresh = padj_thresh
+all_df$def_es_thresh = es_thresh
+all_df$def_min_studies_thresh = min_studies
+
+all_df$virus = factor(all_df$virus, levels = viral_families)
+all_df$time_cat = toupper(all_df$time_cat)
+all_df$time_cat = factor(all_df$time_cat, levels = toupper(c("t1","t2","t3","t4","t5")))
+all_df$total = as.numeric(all_df$total)
+all_df$up = as.numeric(all_df$up)
+all_df$down = as.numeric(all_df$down)
+saveRDS(all_df, paste0(datPath,"3A_deg_count_table.rds"))
+```
+
+```{r}
+all_df = readRDS(paste0(datPath,"3A_deg_count_table.rds"))
+colnames(all_df)[1] = "Virus"
+all_df$total = as.numeric(all_df$total)
+all_df_lim = all_df[all_df$total != 0,]
+all_df_lim = all_df_lim[c("Virus","time_cat","up","down")]
+
+all_df_long = melt(all_df_lim, id=c("Virus","time_cat"))
+all_df_long$value = as.numeric(all_df_long$value)
+```
+
+# first level graph
+```{r}
+all_df_long_up = all_df_long[all_df_long$variable == "up",]
+all_df_long_up["DEG Direction"] = all_df_long_up$variable
+ggplot(all_df_long_up, aes(fill=`DEG Direction`, y=value, x=time_cat)) + 
+    geom_bar(position="stack", stat="identity")  + theme_bw()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + facet_wrap(~Virus, scales = "free_y", nrow = 1) + ylab("Number of DEGs") + xlab("Time Category") + scale_fill_manual(values = c("up" = "#C0392B", "down"= "#1F618D"))
+```
+
+## final Fig3a
+```{r  Fig3a}
+plot = ggplot(all_df_long, aes(fill=`DEG Direction`, y=value, x=time_cat)) + 
+    geom_bar(position="stack", stat="identity")  + theme_bw()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + facet_wrap(~Virus, scales = "free_y", nrow = 1) + ylab("Number of DEGs") + xlab("Time Category") + scale_fill_manual(values = c("up" = "#C0392B", "down"= "#1F618D"))+ theme(text = element_text(size = 16))
+plot = plot +theme(strip.text = element_text(colour = 'white', face = "bold"))
+plot = plot+ theme(legend.position="top",legend.box.spacing = margin(0.2))
+  plot <- ggplot_gtable(ggplot_build(plot))
+  strips <- which(grepl('strip-', plot$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot)
+
+ggsave(plot, filename = paste0(fig3_path,"Fig_3A",".png"), height = 6, width = 10.5)
+```
+
+
+## saving virus x time splits
+```{r}
+dat_savePath2 = paste0(datPath,"generated_objs/")
+
+virus = "arena"
+arena_dat = list(arena_t1_dat, arena_t2_dat, arena_t3_dat, arena_t4_dat, arena_t5_dat)
+names(arena_dat) = c("t1","t2","t3","t4","t5")
+saveRDS(arena_dat, file = paste0(datPath,virus,"_timesplit_dat",".rds"))
+
+virus = "corona"
+corona_dat = list(corona_t1_dat, corona_t2_dat, corona_t3_dat, corona_t4_dat, corona_t5_dat)
+names(corona_dat) = c("t1","t2","t3","t4","t5")
+saveRDS(corona_dat, file = paste0(datPath,virus,"_timesplit_dat",".rds"))
+
+virus = "filo"
+filo_dat = list(filo_t1_dat, filo_t2_dat, filo_t3_dat, filo_t4_dat, filo_t5_dat)
+names(filo_dat) = c("t1","t2","t3","t4","t5")
+saveRDS(filo_dat, file = paste0(datPath,virus,"_timesplit_dat",".rds"))
+
+virus = "flavi"
+flavi_dat = list(flavi_t1_dat, flavi_t2_dat, flavi_t3_dat, flavi_t5_dat)
+names(flavi_dat) = c("t1","t2","t3","t5")
+saveRDS(flavi_dat, file = paste0(datPath,virus,"_timesplit_dat",".rds"))
+
+virus = "ortho"
+ortho_dat = list(ortho_t1_dat, ortho_t2_dat, ortho_t3_dat, ortho_t5_dat)
+names(ortho_dat) = c("t1","t2","t3","t5")
+saveRDS(ortho_dat, file = paste0(datPath,virus,"_timesplit_dat",".rds"))
+```

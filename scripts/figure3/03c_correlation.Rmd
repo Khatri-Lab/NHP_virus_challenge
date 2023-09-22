@@ -1,0 +1,84 @@
+---
+title: "03_Jaccard_comparison_scores"
+output: html_document
+date: "2022-12-28"
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(magrittr)
+library(ComplexHeatmap)
+library(ggplot2)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+source(paste0(path,"scripts/subset_dataobjects.R"))
+source(paste0(path,"scripts/run_pooled_aurocs.R"))
+fig_path = paste0(path,"figures/")
+fig3_path = paste0(fig_path, "Figure3/")
+```
+
+```{r}
+score_names = c("arena_score", "corona_score", "filo_score",
+                   "flavi_score", "ortho_score",
+                   "all_score",  "own_score")
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "5a_alldata_virus_scores_added.rds"))
+cols = c("dataset","disease","virus","virus_family","dataset2","dataset3","dataset4","dataset5","virus_description","day","day2","disease_day","macaque_species","animal","platform","sample_type",  "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "mod1", "mod2", "mod3", "mod4", "scores_normed", "mvs_scores_normed", score_names)
+df = bind_pheno_tables(dat, cols)
+df$Virus = df$dataset5
+cor(df$MVS_score, df$all_score, method = "spearman")
+cor(df$MVS_score, df$all_score)
+
+
+plot = ggplot(df, aes(x = MVS_score, y = all_score)) + geom_point(aes(color = Virus)) + theme_bw() + geom_smooth(method='lm', aes(x = MVS_score, y = all_score), color = "black") + scale_color_manual(values = viral_family_colors)+ stat_cor(method = "spearman",label.sep = "\n") + facet_wrap(~Virus, scales = "free") + ylab("MVS Score (Human)") + xlab("Virus Response Signature Score (NHP)")+
+  theme(legend.position="none")
+plot
+
+
+library(ggh4x)
+
+base <- ggplot(df, aes(x = MVS_score, y = all_score)) + geom_point(color = "#ABB2B9") + theme_bw() + geom_smooth(method='lm', aes(x = MVS_score, y = all_score), color = "black") + scale_color_manual(values = viral_family_colors)+ stat_cor(method = "spearman", size = 5,label.sep = "\n", label.x.npc = 0, label.y.npc = .95)  + xlab("MVS Score (Human)") + ylab("Virus Response Signature (VRS)\nScore (NHP)")+
+  theme(legend.position="none")
+
+design <- c(
+"
+AABBCC
+#DDEE#
+"
+)
+
+plot = base + ggh4x::facet_manual(~Virus, design = design, scales = "free")
+
+
+plot = plot + theme(strip.text = element_text(colour = 'white', face = "bold"))+ theme(text = element_text(size = 18))  + ggtitle("Non-Human Primates")
+
+  plot <- ggplot_gtable(ggplot_build(plot))
+  strips <- which(grepl('strip-', plot$layout$name))
+  pal <- viral_family_colors
+for (i in seq_along(strips)) {
+    k <- which(grepl('rect', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    l <- which(grepl('titleGrob', plot$grobs[[strips[i]]]$grobs[[1]]$childrenOrder))
+    plot$grobs[[strips[i]]]$grobs[[1]]$children[[k]]$gp$fill <- pal[i]
+}
+plot(plot)
+ggsave(plot, filename = paste0(fig3_path,"Fig3F_NHPcor_RVSscore",".png"), height = 6, width = 9)
+```
+
+
