@@ -1,0 +1,108 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(ggbeeswarm)
+library(ggpubr)
+library(rstatix)
+
+set.seed(4)
+```
+
+# path setup
+```{r setup_paths}
+path = ""
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+fig_path = paste0(path,"figures/")
+fig2_path = paste0(fig_path, "Figure2/")
+```
+
+## Figure 2A: Human timepoint
+```{r}
+humTable = readRDS(paste0(datPath,"humanDat_fullTable",".rds"))
+humTable$sympt = ifelse(humTable$Symptomatic_1.Asymptomatic_0 == 1, "Symp", "Asymp")
+humTable$virus_symp = paste0(humTable$virus,"_", humTable$sympt)
+humTable$virus_symp = factor(humTable$virus_symp, levels = c("H1N1_Asymp", "H1N1_Symp", "H3N2_Asymp",  "H3N2_Symp" , "HRV_Asymp","HRV_Symp" ,  "RSV_Asymp" ,  "RSV_Symp" ))
+humTable$`Virus + Symptoms` = humTable$virus_symp
+humTable$virus2 = humTable$virus
+humTable$virus2 = ifelse(humTable$virus2 %in% c("H1N1","H3N2"), "IFV", humTable$virus)
+
+humTable2 = humTable
+humTable2 = humTable2[humTable2$dayOfInfection <= 10,]
+humTable2 = humTable2[humTable2$dayOfInfection >= 0,]
+humTable2$virus_symp2 = paste0(humTable2$virus2,"_", humTable2$sympt)
+humTable2$virus_symp2 = factor(humTable2$virus_symp2, levels = c("IFV_Asymp", "IFV_Symp","HRV_Asymp","HRV_Symp" ,  "RSV_Asymp" ,  "RSV_Symp" ))
+humTable2$Symptoms = humTable2$sympt
+humTable2$Virus = humTable2$virus2
+humTable2$Virus = ifelse(humTable2$Virus == "IFV", "Orthomyxoviridae (IFV)", humTable2$Virus)
+humTable2$Virus = ifelse(humTable2$Virus == "HRV", "Picornaviridae (HRV)", humTable2$Virus)
+humTable2$Virus = ifelse(humTable2$Virus == "RSV", "Pneumoviridae (RSV)", humTable2$Virus)
+
+humTable2$Virus2 = humTable2$virus2
+humTable2$Virus2 = ifelse(humTable2$Virus2 == "IFV", "Orthomyxoviridae", humTable2$Virus2)
+humTable2$Virus2 = ifelse(humTable2$Virus2 == "HRV", "Picornaviridae", humTable2$Virus2)
+humTable2$Virus2 = ifelse(humTable2$Virus2 == "RSV", "Pneumoviridae", humTable2$Virus2)
+
+humTable3 = humTable2[humTable2$sympt != "Asymp",]
+humTable3 = humTable3[humTable3$dayOfInfection <= 7,]
+
+saveRDS(humTable3, file = paste0(datPath,"humanDat_fullTable_3",".rds"))
+
+hplot3 = ggplot(humTable3, aes(x = dayOfInfection, y = MVS_score, color = Virus2))  + theme_bw() + ylab("MVS Score") + xlab("Days Post-Infection") + ggtitle("Human Viral Challenge") + theme(legend.position="top") + xlim(0,7.5) + 
+      annotate("rect", fill = "red", alpha = 0.2, 
+        xmin = 1, xmax = 3 ,
+        ymin = -Inf, ymax = Inf)+ geom_smooth(se = FALSE)   + scale_x_continuous(limits = c(0, 7), breaks = c(0,1,2,3,4,5,6,7))
+# "#DDB206"
+hplot4 = ggplot(humTable3, aes(x = dayOfInfection, y = MVS_score, color = Virus2))  + theme_bw() + ylab("MVS Score") + xlab("Days Post-Infection") + ggtitle("Human Viral Challenge") + theme(legend.position="top") + xlim(0,7.5) + geom_smooth(se = FALSE, size = 2)  +labs(colour="Virus")+
+  scale_color_manual(values = c(viral_family_colors[[5]], "#06A5C799","#8CC26999"))  + scale_x_continuous(limits = c(0, 10), breaks = c(0,1,2,3,4,5,6,7,8,9,10), labels =  c(0,1,2,3,4,5,6,7,8,9,10)) + theme(text = element_text(size = 18))   + 
+  theme(legend.key.width=unit(2.4,"line")) + scale_fill_manual(values = c("#96B8A4","#AFA1A6","#F5E7AF"))+   scale_y_continuous(breaks = c(-1,0,1), labels =  c(-1,0,1))
+hplot5 = hplot4+ theme(
+  legend.position = c(.83, 0.5), legend.direction="vertical", # c(0,0) bottom left, c(1,1) top-right.
+  legend.background = element_rect(fill = "white", colour = "white") 
+)+ theme(legend.title=element_blank())
+hplot5
+ggsave(hplot5, filename = paste0(fig2_path,"2A_Human_challenge",".png"), width = 9, height = 6)
+```
+
+
+### Figure 2C: NHP timepoint
+```{R Fig2C}
+dat = readRDS(file = paste0(datPath, "5a_scores_added.rds"))
+cols = c("dataset","disease","virus","virus_family","dataset2","dataset3","dataset4","dataset5","virus_description","day","day2","disease_day","macaque_species","animal","platform","sample_type",  "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "mod1", "mod2", "mod3", "mod4", "scores_normed", "mvs_scores_normed", "time_cat", "technology")
+df = bind_pheno_tables(dat, cols)
+
+megaTable_min = df[df$day <= 10,]
+megaTable_min$Virus = megaTable_min$dataset5
+megaTable_min$day = as.integer(megaTable_min$day)
+
+
+plot_challenge4 = ggplot(megaTable_min) + theme_bw() + geom_smooth(se = FALSE, size = 2, aes(x = day, y = MVS_score, color = Virus))+ ylab("MVS Score") + xlab("Day Post-Infection")+ 
+  theme(legend.key.width=unit(3,"line")) + scale_colour_manual(values=viral_family_colors[1:5], name="Virus")  + ggtitle("Non-Human Primate Viral Challenge")+  scale_x_continuous(limits = c(0, 10), breaks = c(0,1,2,3,4,5,6,7,8,9,10), labels =  c(0,1,2,3,4,5,6,7,8,9,10))+   scale_y_continuous(breaks = c(-1,0,1), labels =  c(-1,0,1))+
+  theme(legend.position = "top")+
+  guides(color=guide_legend(nrow=2, byrow=TRUE)) + theme(text = element_text(size = 18)) 
+plot_challenge4
+plot_challenge5 = plot_challenge4+ theme(
+  legend.position = c(.65, .9), legend.direction="vertical", # c(0,0) bottom left, c(1,1) top-right.
+  legend.background = element_rect(fill = "white", colour = "white") 
+)+
+  theme(legend.title = element_text(size=17), #change legend title font size
+        legend.text = element_text(size=16), legend.key.width = unit(.6, 'cm')) + theme(legend.title=element_blank())
+plot_challenge5
+ggsave(plot_challenge5, filename = paste0(fig2_path,"2C_NHP_challenge",".png"), width = 9, height = 6)
+
+```
+
+###
