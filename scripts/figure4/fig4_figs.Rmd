@@ -1,0 +1,195 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r, message = FALSE}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+library(ggbeeswarm)
+library(ggpubr)
+library(rstatix)
+
+set.seed(4)
+```
+
+# path setup
+```{r setup_paths}
+path = ""
+fig_path = paste0(path,"figures/")
+fig4_path = paste0(fig_path, "Figure4/")
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+```
+
+
+```{r}
+dat = readRDS(paste0(datPath, "dna_chronic_dat_final.rds"))
+sig_path_list = readRDS(paste0(datPath,"sig_path_list",".rds"))
+```
+
+
+```{r}
+cols = c("dataset","disease","details", "MVS_score", "VRS_score")
+columns_of_interest = cols
+
+for (data_one in names(dat$originalData)) {
+  x = cols[!(cols %in% colnames(dat$originalData[[data_one]]$pheno))]
+}
+
+df = bind_pheno_tables2(dat, columns_of_interest)
+```
+
+```{r}
+df = bind_pheno_tables2(dat, columns_of_interest)
+df$dataset2 = ifelse(grepl("GSE45924", df$dataset), "GSE45924", df$dataset)
+df$dataset2 = ifelse(grepl("GSE40224", df$dataset), "GSE40224", df$dataset2)
+df$details2 = df$details
+df$details2 = as.character(df$details2)
+
+df$details2 = ifelse(grepl("Chronic", df$details2), "Chronic", df$details2)
+df$details2 = ifelse(grepl("Acute", df$details2), "Acute", df$details2)
+df$details2 = ifelse(df$details2 == "HIV + RV", "Acute (Co-Infection)", df$details2)
+df$details2 = ifelse(df$details2 == "HIV", "Chronic", df$details2)
+
+df$details = ifelse(df$details == "EBV-Chronic", "EBV-Latent", df$details)
+df$details = ifelse(df$details == "HCMV-Chronic", "HCMV-Latent", df$details)
+df$details2 = ifelse(grepl("Latent", df$details), "Latent", df$details2)
+df$details2 = ifelse(grepl("Rotavirus|Adenovirus", df$details), "Acute", df$details2)
+df = df[df$details != "remove",]
+df$details = as.character(df$details)
+df$details2 = as.character(df$details2)
+df$details2  = factor(df$details2 , levels = c("Healthy","Acute", "Acute (Co-Infection)","Chronic","Latent"))
+df$details = factor(df$details, levels = c("Healthy","Rotavirus","Adenovirus","HIV + RV","HIV", "HCMV-Acute","HCMV-Latent","EBV-Acute","EBV-Latent","HBV-Chronic", "HCV-Chronic"))
+ggplot(df, aes(x = details2, y = VRS_score)) + geom_boxplot(outlier.shape = NA) + geom_point() + facet_wrap(~dataset2, scales = "free_x") + stat_compare_means(method = "wilcox.test", ref.group = "Healthy", label = "p.signif") + theme_bw()
+```
+
+```{r}
+disease_colors_2 = c("#444E7E", "#D8511D", "#52BE80", "#F5AD1D", "#F5E51D")
+names(disease_colors_2) = c("Healthy","Acute", "Acute (Co-Infection)","Chronic", "Latent")
+
+library(ggbeeswarm)
+df_dat1 = df[df$dataset2 == "GSE155352",]
+df_dat2 = df[df$dataset2 == "GSE81246",]
+df_dat3 = df[df$dataset2 == "GSE45924",]
+df_dat4 = df[df$dataset2 == "GSE58208",]
+df_dat5 = df[df$dataset2 == "GSE40224",]
+df_dat6 = df[df$dataset2 == "GSE40366",]
+df_dat7 = df[df$dataset2 == "GSE69529",]
+df_dat8 = df[df$dataset2 == "GSE69529_2",]
+df_dat6b = dat$originalData$GSE40366$pheno 
+n = 2
+my_symnum <- list(cutpoints = c(0, 0.0001/n, 0.001/n, 0.01/n, 0.05/n, 1.1), symbols = c("****", "***", "**", "*", "ns"))
+```
+
+```{r}
+# HIV
+plot1 = ggplot(df_dat1, aes(x = details, y = VRS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4) + stat_compare_means( method = "wilcox.test", size = 10, ref.group = "Healthy", label =  "p.signif",symnum.args = my_symnum, label.y = 2.9, method.args = list(alternative = "greater")) + xlab("") + ylab("VRS score")+ theme_bw() + theme(legend.position = "None") + ggtitle("HIV Infection (GSE155352)")+ theme(text = element_text(size = 20))   + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-2.3, 3.3)
+
+plot2 = ggplot(df_dat2, aes(x = details, y = VRS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)+ stat_compare_means( method = "wilcox.test", size = 10, ref.group = "Healthy",label =  "p.signif", symnum.args = my_symnum, label.y = 1.85, method.args = list(alternative = "greater")) + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("HCMV Infection (GSE81246)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-2, 2.2)
+
+plot3 = ggplot(df_dat3, aes(x = details, y = VRS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA)+ geom_quasirandom(color = "black", width = 0.5, alpha = .4) + stat_compare_means( method = "wilcox.test", size = 10, label.y = 1.85, ref.group = "Healthy",label =  "p.signif", symnum.args = my_symnum, method.args = list(alternative = "greater")) + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("EBV Infection (GSE45924)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-2, 2.2)
+
+plot4 = ggplot(df_dat4, aes(x = details, y = VRS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4) + stat_compare_means( method = "wilcox.test", size = 10, label.y = 2.3, ref.group = "Healthy", label =  "p.signif", method.args = list(alternative = "greater")) + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("HBV Infection (GSE58208)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-1.5, 2.6)
+
+plot5 = ggplot(df_dat5, aes(x = details, y = VRS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)+ stat_compare_means( method = "wilcox.test", size = 10, label.y = 1.9, ref.group = "Healthy", label =  "p.signif", method.args = list(alternative = "greater")) + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("HCV Infection (GSE40224)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))   + ylim(-2.1, 2.3)
+
+plot7 = ggplot(df_dat7, aes(x = details, y = VRS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)+ stat_compare_means( method = "wilcox.test", size = 10, label.y = 2.7, ref.group = "Healthy", label =  "p.signif", method.args = list(alternative = "greater")) + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("Rotavirus Infection (GSE69529)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))   + ylim(-1.7, 3)
+
+plot8 = ggplot(df_dat8, aes(x = details, y = VRS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)+ stat_compare_means( method = "wilcox.test", size = 10, label.y = 1.5, ref.group = "Healthy", label =  "p.signif", method.args = list(alternative = "greater")) + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("Adenovirus Infection (GSE69529)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))   + ylim(-2.3, 1.8)
+```
+
+```{r}
+plot1;plot2;plot3;plot4; plot5;  plot7; plot8
+ggsave(plot1, filename = paste0(fig4_path, "VRS_Fig4A_HIV.png"), width = 6.5, height = 6)
+ggsave(plot2, filename = paste0(fig4_path, "VRS_Fig4B_HCMV.png"), width = 6.5, height = 6)
+ggsave(plot3, filename = paste0(fig4_path, "VRS_Fig4C_EBV.png"), width = 6.5, height = 6)
+ggsave(plot4, filename = paste0(fig4_path, "VRS_Fig4D_HBV.png"), width = 6, height = 6)
+ggsave(plot5, filename = paste0(fig4_path, "VRS_Fig4E_HCV.png"), width = 6, height = 6)
+ggsave(plot7, filename = paste0(fig4_path, "VRS_Fig4G_rota.png"), width = 6, height = 6)
+ggsave(plot8, filename = paste0(fig4_path, "VRS_Fig4H_aden.png"), width = 6, height = 6)
+
+legend = ggplot(df, aes(x = details, y = VRS_score, fill = details2))+ geom_violin(width=1) +
+  geom_quasirandom(color = "black", width = 0.2)+geom_boxplot(width=0.2, color="black", alpha=0.2, outlier.shape = FALSE)  + stat_compare_means( method = "wilcox.test", size = 6.5, ref.group = "Healthy", label =  "p.signif") + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + ggtitle("HBV Infection (GSE58208)")+ theme(text = element_text(size = 18))  + scale_fill_manual(values = disease_colors_2) + labs(fill = "Disease Type") + theme(legend.position="right")
+legend
+ggsave(legend, filename = paste0(fig4_path, "VRS_Fig4_legend.png"), width = 10, height = 6)
+```
+
+
+
+```{r}
+disease_colors_2 = c("#444E7E", "#D8511D", "#52BE80", "#F5AD1D", "#F5E51D")
+names(disease_colors_2) = c("Healthy","Acute", "Acute (Co-Infection)","Chronic", "Latent")
+
+df_dat1 = df[df$dataset2 == "GSE155352",]
+df_dat2 = df[df$dataset2 == "GSE81246",]
+df_dat3 = df[df$dataset2 == "GSE45924",]
+df_dat4 = df[df$dataset2 == "GSE58208",]
+df_dat5 = df[df$dataset2 == "GSE40224",]
+df_dat6 = df[df$dataset2 == "GSE40366",]
+df_dat7 = df[df$dataset2 == "GSE69529",]
+df_dat8 = df[df$dataset2 == "GSE69529_2",]
+df_dat6b = dat$originalData$GSE40366$pheno
+n = 2
+my_symnum <- list(cutpoints = c(0, 0.0001/n, 0.001/n, 0.01/n, 0.05/n, 1.1), symbols = c("****", "***", "**", "*", "ns"))
+
+comb1a = c("Healthy","HIV")
+df_dat1a = df_dat1[df_dat1$details %in% comb1a,]
+df_dat1a$details = factor(df_dat1a$details, levels = comb1a)
+wilcox.test(MVS_score ~ details, data = df_dat1a,
+        exact = FALSE)
+wilcox.test(MVS_score ~ details, data = df_dat1a,
+        exact = FALSE, alternative = "less")
+
+comb1b = c("Healthy","HIV + RV")
+df_dat1a = df_dat1[df_dat1$details %in% comb1b,]
+df_dat1a$details = factor(df_dat1a$details, levels = comb1b)
+wilcox.test(MVS_score ~ details, data = df_dat1a,
+        exact = FALSE)
+wilcox.test(MVS_score ~ details, data = df_dat1a,
+        exact = FALSE, alternative = "less")
+
+
+plot1 = ggplot(df_dat1, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4) + stat_compare_means( method = "wilcox.test", size = 10, ref.group = "Healthy", label =  "p.signif",label.y = 3, symnum.args = my_symnum, method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw() + theme(legend.position = "None") + ggtitle("HIV Infection (GSE155352)")+ theme(text = element_text(size = 20))   + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-2.3, 3.3)
+plot1
+plot2 = ggplot(df_dat2, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4) + stat_compare_means( method = "wilcox.test", size = 10, ref.group = "Healthy",label =  "p.signif", label.y = 1.85, symnum.args = my_symnum, method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("HCMV Infection (GSE81246)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-2, 2)
+plot2
+plot3 = ggplot(df_dat3, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)  + stat_compare_means( method = "wilcox.test", size = 10, label.y = 1.85, ref.group = "Healthy",label =  "p.signif",symnum.args = my_symnum, method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("EBV Infection (GSE45924)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-2, 2)
+plot3
+plot4 = ggplot(df_dat4, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)  + stat_compare_means( method = "wilcox.test", size = 10, label.y = 2.1, ref.group = "Healthy", label =  "p.signif",  method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("HBV Infection (GSE58208)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))  + ylim(-1.5, 2.2)
+plot4
+
+plot5 = ggplot(df_dat5, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4) + stat_compare_means( method = "wilcox.test", size = 10, label.y = 1.85, ref.group = "Healthy", label =  "p.signif",  method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("HCV Infection (GSE40224)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))   + ylim(-2.3, 2)
+plot5
+
+plot7 = ggplot(df_dat7, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)  + stat_compare_means( method = "wilcox.test", size = 10, label.y = 1.85, ref.group = "Healthy", label =  "p.signif",  method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("Rotavirus Infection (GSE69529)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))   + ylim(-2.3, 2)
+plot7
+
+plot8 = ggplot(df_dat8, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4) + stat_compare_means( method = "wilcox.test", size = 10, label.y = 1.85, ref.group = "Healthy", label =  "p.signif",  method.args = list(alternative = "greater")) + xlab("") + ylab("MVS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + theme(legend.position = "None")+ ggtitle("Adenovirus Infection (GSE69529)")+ theme(text = element_text(size = 20))  + scale_fill_manual(values = disease_colors_2)+ theme(axis.text = element_text(size = 20))   + ylim(-2.3, 2)
+plot8
+
+plot1;plot2;plot3;plot4; plot5;  plot7; plot8
+ggsave(plot1, filename = paste0(fig4_path, "MVS_Fig4A_HIV.png"), width = 6.5, height = 6)
+ggsave(plot2, filename = paste0(fig4_path, "MVS_Fig4B_HCMV.png"), width = 6.5, height = 6)
+ggsave(plot3, filename = paste0(fig4_path, "MVS_Fig4C_EBV.png"), width = 6.5, height = 6)
+ggsave(plot4, filename = paste0(fig4_path, "MVS_Fig4D_HBV.png"), width = 6, height = 6)
+ggsave(plot5, filename = paste0(fig4_path, "MVS_Fig4E_HCV.png"), width = 6, height = 6)
+ggsave(plot7, filename = paste0(fig4_path, "MVS_Fig4G_rota.png"), width = 6, height = 6)
+ggsave(plot8, filename = paste0(fig4_path, "MVS_Fig4H_aden.png"), width = 6, height = 6)
+
+legend = ggplot(df, aes(x = details, y = MVS_score, fill = details2))+geom_boxplot(width=0.7, color="black", outlier.shape = NA) + geom_quasirandom(color = "black", width = 0.5, alpha = .4)  + stat_compare_means( method = "wilcox.test", size = 6.5, ref.group = "Healthy", label =  "p.signif") + xlab("") + ylab("VRS score")+ theme_bw()+theme(strip.text = element_text(colour = 'white', face = "bold")) + ggtitle("HBV Infection (GSE58208)")+ theme(text = element_text(size = 18))  + scale_fill_manual(values = disease_colors_2) + labs(fill = "Disease Type") + theme(legend.position="right")
+legend
+ggsave(legend, filename = paste0(fig4_path, "MVS_Fig4_legend.png"), width = 10, height = 6)
+```
+
+
+
+###
