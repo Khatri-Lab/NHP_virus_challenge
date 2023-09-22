@@ -4,19 +4,32 @@ library(COCONUT)
 bind_pheno_tables = function(object, columns_of_interest) {
   for (i in 1:length(names(object$originalData))) {
     if (i == 1) {
-      # print(names(object$originalData)[i])
-      # print(columns_of_interest[!(columns_of_interest %in% colnames(object$originalData[[i]]$pheno))])
       object$originalData[[i]]$pheno = as.data.frame(object$originalData[[i]]$pheno)
       out_df = object$originalData[[i]]$pheno[, columns_of_interest]
     }
     else {
-      # print(names(object$originalData)[i])
-      # print(columns_of_interest[!(columns_of_interest %in% object$originalData[[i]]$pheno)])
       object$originalData[[i]]$pheno = as.data.frame(object$originalData[[i]]$pheno)
       out_df = rbind(out_df, object$originalData[[i]]$pheno[, columns_of_interest])
     }
   }
   out_df$day = as.numeric(as.character(out_df$day))
+  out_df$disease = factor(out_df$disease, levels = c("Healthy", "Disease"))
+  return(out_df)
+}
+
+bind_pheno_tables2 = function(object, columns_of_interest) {
+  for (i in 1:length(names(object$originalData))) {
+    if (i == 1) {
+      print(names(object$originalData)[i])
+      object$originalData[[i]]$pheno = as.data.frame(object$originalData[[i]]$pheno)
+      out_df = object$originalData[[i]]$pheno[, columns_of_interest]
+    }
+    else {
+      print(names(object$originalData)[i])
+      object$originalData[[i]]$pheno = as.data.frame(object$originalData[[i]]$pheno)
+      out_df = rbind(out_df, object$originalData[[i]]$pheno[, columns_of_interest])
+    }
+  }
   out_df$disease = factor(out_df$disease, levels = c("Healthy", "Disease"))
   return(out_df)
 }
