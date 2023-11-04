@@ -1,0 +1,193 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = paste0(here::here(),"/") ## should be the github project folder, otherwise adjust accordingly
+datPath_0 = paste0(path, "data/")
+datPath = paste0(datPath_0, "processed_data/")
+```
+
+```{r cars}
+dat = readRDS(file = paste0(datPath, "1b_original_completed_ordered_data.rds"))
+checkDataObject(dat, "Meta", "Pre-Analysis")
+length(dat$originalData) # 3
+```
+
+
+## useful functions for getting day
+```{r}
+getNum3 = function(string) {
+  return(as.numeric(unlist(strsplit(string, " "))[3]))
+}
+```
+
+# 1/12: GSE41752-LASV
+```{r GSE41752-LASV}
+datPheno = dat$originalData$GSE41752$pheno
+datPheno$obj_name = "GSE41752-LASV_1"
+datPheno$name = "LASV_1"
+datPheno$dataset = "GSE41752"
+datPheno$disease = ifelse(grepl("pre-infection", datPheno$`infection:ch1`), "Healthy", "Disease")
+datPheno$virus = ifelse(grepl("pre-infection", datPheno$`infection:ch1`), "Healthy", "LASV")
+datPheno$virus_family = ifelse(grepl("pre-infection", datPheno$`infection:ch1`), "Healthy", "Arenaviridae")
+datPheno$dataset2 = "GSE41752-LASV"
+datPheno$dataset3 = "GSE41752-Arenaviridae"
+datPheno$virus_description = "Lassa virus"
+datPheno$day = unlist(lapply(datPheno$characteristics_ch1.2, getNum3))
+datPheno$day = ifelse(datPheno$day <= 0, 0, datPheno$day)
+datPheno$day2 = unlist(lapply(datPheno$characteristics_ch1.2, getNum3))
+datPheno$disease_day = paste0(datPheno$disease,"_",datPheno$day)
+datPheno$macaque_species = "cynomolgus"
+datPheno$animal = datPheno$`animal id:ch1`
+datPheno$technology = "Microarray"
+datPheno$tech_specifics = "Agilent-014850 Whole Human Genome Microarray 4x44K G4112F"
+datPheno$species_alignment = "Human"
+
+datPheno = separate(datPheno, col = dataset2, into = c(NA, "dataset4"), sep = "-", remove = FALSE)
+datPheno = separate(datPheno, col = dataset3, into = c(NA, "dataset5"), sep = "-", remove = FALSE)
+
+datPheno$platform = "Agilent"
+datPheno$sample_type = "PBMC"
+
+dat$originalData$GSE41752$pheno = datPheno
+
+checkDataObject(dat$originalData$GSE41752, "Dataset")
+```
+
+
+# GSE184949-SARS_4
+```{r GSE184949-SARS_4}
+datPheno = dat$originalData$GSE184949_GPL29319$pheno
+datPheno$obj_name = "GSE184949-SARS_4"
+datPheno$dataset = "GSE184949_GPL29319"
+datPheno$disease = ifelse(grepl("PRE", datPheno$`time:ch1`), "Healthy", "Disease")
+datPheno$virus = ifelse(grepl("PRE", datPheno$`time:ch1`), "Healthy", "SARS")
+datPheno$virus_family = ifelse(grepl("PRE", datPheno$`time:ch1`), "Healthy", "Coronaviridae")
+datPheno$dataset2 = "GSE184949-SARS"
+datPheno$dataset3 = "GSE184949-Coronaviridae"
+datPheno$virus_description = "SARS-CoV-2"
+datPheno$day = datPheno$`time:ch1`
+datPheno$day = gsub("dpi", "", datPheno$day)
+datPheno$day = ifelse(datPheno$day == "PRE", 0, datPheno$day)
+datPheno$day = as.numeric(as.character(datPheno$day))
+datPheno$day2 = datPheno$day
+datPheno$disease_day = paste0(datPheno$disease,"_",datPheno$day)
+datPheno$macaque_species = "rhesus"
+datPheno$animal = substr(datPheno$title,1,4)
+
+datPheno = separate(datPheno, col = dataset2, into = c(NA, "dataset4"), sep = "-", remove = FALSE)
+datPheno = separate(datPheno, col = dataset3, into = c(NA, "dataset5"), sep = "-", remove = FALSE)
+
+datPheno$platform = "Illumina"
+datPheno$sample_type = "WB"
+
+datPheno$technology = "RNA-seq"
+datPheno$tech_specifics = "NextSeq 550"
+datPheno$species_alignment = "Macaca mulatta"
+
+dat$originalData$GSE184949_GPL29319$pheno = datPheno
+dat$originalData$GSE184949_GPL29319$name = "SARS_4"
+```
+
+
+# Baize-MACV_1
+```{r}
+datPheno = dat$originalData$Baize$pheno
+datPheno$name = "MACV_1"
+datPheno$obj_name = "Baize-MACV_1"
+datPheno$dataset = "Baize"
+datPheno$disease = ifelse(datPheno$day == 0, "Healthy", "Disease")
+datPheno$virus = ifelse(datPheno$day == 0, "Healthy", "MACV")
+datPheno$virus_family = ifelse(datPheno$day == 0, "Healthy", "Arenaviridae")
+datPheno$dataset2 = "Baize-MACV"
+datPheno$dataset3 = "Baize-Arenaviridae"
+datPheno$virus_description = "MACV"
+datPheno$day = as.numeric(as.character(datPheno$day))
+datPheno$day2 = datPheno$day
+datPheno$disease_day = paste0(datPheno$disease,"_",datPheno$day)
+datPheno$macaque_species = "cynomolgus"
+
+datPheno = separate(datPheno, col = dataset2, into = c(NA, "dataset4"), sep = "-", remove = FALSE)
+datPheno = separate(datPheno, col = dataset3, into = c(NA, "dataset5"), sep = "-", remove = FALSE)
+
+datPheno$platform = "Illumina"
+datPheno$sample_type = "PBMCs"
+
+datPheno$technology = "RNA-seq"
+datPheno$tech_specifics = "NextSeq 500"
+datPheno$species_alignment = "Macaca fascicularis"
+
+dat$originalData$Baize$pheno = datPheno
+dat$originalData$Baize$name = "MACV_1"
+```
+
+```{r}
+for(i in 1:length(dat$originalData)) {
+  dataset = dat$originalData[[i]]
+  dataset$pheno$class = ifelse(dataset$pheno$disease == "Disease", 1, 0)
+  dataset$class = as.numeric(dataset$pheno$class)
+  names(dataset$class) = rownames(dataset$pheno)
+  message(identical(names(dataset$class),rownames(dataset$pheno)))
+  dat$originalData[[i]] = dataset
+}
+
+for(i in 1:length(dat$originalData)) {
+  dataset = dat$originalData[[i]]
+  print(dataset$formattedName)
+  dataset$pheno = dataset$pheno[order(dataset$pheno$disease, decreasing = TRUE),]
+  dataset$expr = dataset$expr[,rownames(dataset$pheno)]
+  dataset$class = as.numeric(dataset$pheno$class)
+  names(dataset$class) = rownames(dataset$pheno)
+  dat$originalData[[i]] = dataset
+}
+```
+
+
+
+
+```{r order_object}
+dat_ordered = list()
+dat_ordered$originalData = list()
+dat_ordered$originalData$Baize = dat$originalData$Baize
+dat_ordered$originalData$GSE41752 = dat$originalData$GSE41752
+dat_ordered$originalData$GSE184949_GPL29319 = dat$originalData$GSE184949_GPL29319
+```
+
+
+```{r}
+checkDataObject(dat, "Meta", "Pre-Analysis")
+checkDataObject(dat_ordered, "Meta", "Pre-Analysis")
+
+for (name in names(dat_ordered$originalData)) {
+   # dat_ordered$originalData[[name]]$name = dat_ordered$originalData[[name]]$formattedName
+   print(dat_ordered$originalData[[name]]$formattedName)
+   print(dat_ordered$originalData[[name]]$name)
+}
+
+saveRDS(dat, file = paste0(datPath, "2a_completed_metadata.rds"))
+saveRDS(dat_ordered, file = paste0(datPath, "2b_original_completed_ordered_metadata.rds"))
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "2b_original_completed_ordered_metadata.rds"))
+for (dobj in dat$originalData) {
+  print(dobj$formattedName)
+  boxplot(dobj$expr[,1:10], xlab = dobj$name)  # -> shows samples 1-15, to see all run: boxplot(dataObj1$expr)
+}
+```
+
+
+## end

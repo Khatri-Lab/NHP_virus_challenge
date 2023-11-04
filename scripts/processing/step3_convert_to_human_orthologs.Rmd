@@ -1,0 +1,69 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(HGNChelper)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = paste0(here::here(),"/") ## should be the github project folder, otherwise adjust accordingly
+datPath = paste0(path, "data/processed_data/")
+dat = readRDS(file = paste0(datPath, "2b_original_completed_ordered_metadata.rds"))
+source(paste0(path, "scripts/processing/processing_functions.R"))
+```
+
+
+```{r}
+dat = convert_monkey_to_human_orthologs(dat, "GSE41752")
+dat = convert_monkey_to_human_orthologs(dat, "Baize")
+dat = convert_monkey_to_human_orthologs(dat, "GSE184949_GPL29319")
+```
+
+
+```{r}
+for (dataset in names(dat$originalData)) {
+  gse = dat$originalData[[dataset]]
+  keys = gse$keys
+  
+  key_genes = unname(unlist(keys)) %>% as.data.frame()
+  key_genes$probes = names(keys)
+  colnames(key_genes)[1] = "gene"
+  
+  temp = HGNChelper::checkGeneSymbols(key_genes$gene)
+  temp$Suggested.Symbol = gsub(" /// ", ",", temp$Suggested.Symbol) # for MI to parse
+  
+  all.equal(temp$x, key_genes$gene)
+  
+  key_genes$Suggested.Symbol = temp$Suggested.Symbol
+  
+  if(!(all.equal(names(keys), key_genes$probes) | all.equal(rownames(gse$expr), key_genes$probes))) {
+    message(paste0("ERROR WITH ", dataset))
+  }
+  
+  new_key = key_genes$Suggested.Symbol
+  names(new_key) = key_genes$probes
+
+  gse$keys = new_key
+  print(dataset)
+  print(checkDataObject(gse, "Dataset") )
+  dat$originalData[[dataset]] = gse
+}
+
+```
+
+```{r}
+checkDataObject(dat, "Meta", "Pre-Analysis")
+saveRDS(dat, file = paste0(datPath, "3a_human_orthologs_fulldata.rds"))
+```
+

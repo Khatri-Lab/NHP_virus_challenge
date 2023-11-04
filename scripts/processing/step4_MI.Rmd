@@ -1,0 +1,214 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+## script to plot each object by MVS score/ day and make table of mvs counts
+```{r}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(ggpubr)
+library(NatParksPalettes)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = paste0(here::here(),"/") ## should be the github project folder, otherwise adjust accordingly
+datPath = paste0(path, "data/processed_data/")
+source(paste0(path,"scripts/load_mvs_genes.R"))
+source(paste0(path,"scripts/functions_step45.R"))
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "3a_human_orthologs_fulldata.rds"))
+checkDataObject(dat, "Meta", "Pre-Analysis")
+
+dat = fix_classes(dat)
+dat = runMetaAnalysis(dat)
+dat = filterGenes(dat, isLeaveOneOut = TRUE, FDRThresh = 0.001)
+
+saveRDS(dat, file = paste0(datPath, "4a_UV_MetaAnalysis_LOO_FDR.001.rds"))
+
+dat = add_score_to_pheno(dat, "MVS_score", mvs.up, mvs.down)
+dat = add_score_to_pheno(dat, "mvs_score", MVSup, MVSdown)
+dat = add_score_to_pheno(dat, "Mod1", Mod1)
+dat = add_score_to_pheno(dat, "Mod2", Mod2)
+dat = add_score_to_pheno(dat, "Mod3", Mod3)
+dat = add_score_to_pheno(dat, "Mod4", Mod4)
+dat = add_score_to_pheno(dat, "mod1", mod1)
+dat = add_score_to_pheno(dat, "mod2", mod2)
+dat = add_score_to_pheno(dat, "mod3", mod3)
+dat = add_score_to_pheno(dat, "mod4", mod4)
+
+dat = fix_time_cat(dat, col_name = "time_category")
+
+dat = baseline_sub_jobs_MVS_score(dat)
+dat = baseline_sub_jobs_mvs_score(dat)
+
+saveRDS(dat, file = paste0(datPath, "5a_UV_scores_added.rds"))
+```
+
+```{r}
+dat = readRDS(file = paste0(datPath, "3a_human_orthologs_fulldata.rds"))
+
+## remove vaccinated data
+datPheno = dat$originalData$Baize$pheno
+datPheno = datPheno[datPheno$condition == "Ctrl",] ## don't want vaccinated animals
+obj = dat$originalData$Baize
+obj <- subsetOriginalData(obj, 
+   keepMe= c(rownames(datPheno)))
+dat$originalData$Baize = obj
+
+
+checkDataObject(dat, "Meta", "Pre-Analysis")
+
+dat = fix_classes(dat)
+dat = runMetaAnalysis(dat)
+dat = filterGenes(dat, isLeaveOneOut = TRUE, FDRThresh = 0.001)
+
+saveRDS(dat, file = paste0(datPath, "4a_MetaAnalysis_LOO_FDR.001.rds"))
+
+dat = readRDS(file = paste0(datPath, "4a_MetaAnalysis_LOO_FDR.001.rds"))
+dat = add_score_to_pheno(dat, "MVS_score", mvs.up, mvs.down)
+dat = add_score_to_pheno(dat, "mvs_score", MVSup, MVSdown)
+dat = add_score_to_pheno(dat, "Mod1", Mod1)
+dat = add_score_to_pheno(dat, "Mod2", Mod2)
+dat = add_score_to_pheno(dat, "Mod3", Mod3)
+dat = add_score_to_pheno(dat, "Mod4", Mod4)
+
+dat = fix_time_cat(dat, col_name = "time_category")
+
+dat = baseline_sub_jobs_MVS_score(dat)
+dat = baseline_sub_jobs_mvs_score(dat)
+
+saveRDS(dat, file = paste0(datPath, "5a_scores_added.rds"))
+```
+
+
+```{r}
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+cols = c("dataset","disease","virus","virus_family","dataset2","dataset3","dataset4","dataset5","virus_description","day","day2","disease_day","macaque_species","animal","platform","sample_type", "platform", "obj_name" ,"MVS_score", "Mod1", "Mod2", "Mod3", "Mod4", "mvs_score", "scores_normed", "mvs_scores_normed")
+columns_of_interest = cols
+
+df = bind_pheno_tables(dat, cols)
+length(unique(df$dataset))
+names(dat$originalData)[!(names(dat$originalData) %in% unique(df$dataset))]
+
+df3 = df
+df3$MVS_score = as.numeric(as.character(df3$MVS_score))
+## get average MVS score per day per dataset
+df3b = df3 %>%
+  group_by(obj_name, day, dataset5) %>%
+  summarise(avg = mean(MVS_score), n = n())
+# get max timepoints by MVS score
+df3c =  df3b %>% group_by(obj_name) %>% top_n(1, avg)
+df3d = df3c
+
+## get day categories with the highest MVS scores
+quantile(df3d$day, probs = seq(0, 1, 0.2)) ## define time_cat
+df3e = add_time_cat(df3d, col_name = "time_category")
+df3cb = add_time_cat(df3c, col_name = "time_category")
+saveRDS(df3cb, paste0(datPath, "times_to_keep_a.rds"))
+
+df3ba = add_time_cat(df3, col_name = "time_category")
+df3bb = df3ba %>%
+  group_by(obj_name, time_category, dataset5) %>%
+  summarise(avg = mean(MVS_score), n = n())
+df3bc =  df3bb %>% group_by(obj_name) %>% top_n(1, avg)
+saveRDS(df3bc, paste0(datPath, "times_to_keep_2a.rds"))
+saveRDS(df, paste0(datPath, "times_to_keep_df_og.rds"))
+```
+
+## make object with just the peak time_cats
+```{r}
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+time_to_keep = readRDS(paste0(datPath, "times_to_keep_2a.rds"))
+dat = subset_data_with_dfkey(dat, time_to_keep)
+
+for (i in c(1:length(names(dat$originalData)))) {
+  print(unique(dat$originalData[[i]]$pheno$day))
+  print(unique(dat$originalData[[i]]$pheno$time_cat))
+}
+
+saveRDS(dat, paste0(datPath, "9a_timecat_peaksubset.rds"))
+```
+
+## get earliest timepoint per timepoint category
+```{r}
+## find earliest day within timepoint category per animal
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+cols2 = c("dataset","dataset5","virus_description","day","day2","disease_day","macaque_species","animal","obj_name","platform","disease")
+df_byanimal = bind_pheno_tables(dat, cols2)
+
+length(unique(df_byanimal$dataset))
+names(dat$originalData)[!(names(dat$originalData) %in% unique(df_byanimal$dataset))]
+df_byanimal = add_time_cat(df_byanimal, col_name = "time_category")
+df_byanimal$keep = paste0(df_byanimal$obj_name,"_",df_byanimal$time_category)
+
+time_to_keep = readRDS(paste0(datPath, "times_to_keep_2a.rds"))
+time_to_keep$keep = paste0(time_to_keep$obj_name,"_",time_to_keep$time_category)
+
+df_byanimal = df_byanimal[(df_byanimal$time_category == "t0"|df_byanimal$keep %in% time_to_keep$keep),]
+
+df_byanimal_zero = df_byanimal[df_byanimal$time_category == "t0",]
+df_byanimal_acute = df_byanimal[df_byanimal$time_category != "t0",]
+df_byanimal_acute = df_byanimal_acute %>% group_by(dataset, animal) %>% slice_max(order_by = -day, n = 1)
+
+table(table(df_byanimal_acute$animal))
+table(table(df_byanimal_zero$animal))
+
+df_single = rbind(df_byanimal_acute, df_byanimal_zero)
+dim(df_single)
+### need to subset by this df_single
+saveRDS(df_single, paste0(datPath, "df_single.rds"))
+```
+
+
+
+```{r}
+## pick the earliest day in the time category
+subset_data_by_anitime = function(object, df, colname = "obj_name") {
+  data_out = list()
+  object = fix_time_cat(object)
+  for (i in 1:length(names(object$originalData))) {
+    dataset = object$originalData[[i]]
+    pheno = dataset$pheno
+    name = unname(unlist(unique(pheno[colname])))
+    df_one = df[df$obj_name == name,]
+    df_one$ani_day = paste0(df_one$animal,"_",df_one$day)
+    pheno$ani_day = paste0(pheno$animal,"_",pheno$day)
+
+    ## subset pheno by animal+time
+    pheno_sub = pheno[pheno$ani_day %in% df_one$ani_day,]
+    print(paste0(name,"_",nrow(pheno),"_",nrow(pheno_sub)))
+    ## subset by dataset by pheno
+    dataset <- subsetOriginalData(dataset, 
+                                  keepMe= c(rownames(pheno_sub)))
+    message(checkDataObject(dataset, "Dataset"))
+    object$originalData[[i]] = dataset
+    }
+  return(object)
+}
+```
+
+```{r}
+dat = readRDS(paste0(datPath, "5a_scores_added.rds"))
+df_single = readRDS(paste0(datPath, "df_single.rds"))
+dat = subset_data_by_anitime(dat, df_single)
+
+for (i in c(1:length(names(dat$originalData)))) {
+  print(unique(dat$originalData[[i]]$pheno$day))
+  print(unique(dat$originalData[[i]]$pheno$time_cat))
+}
+
+saveRDS(dat, paste0(datPath, "9a_timecat_peaksubset_individual.rds"))
+
+table(table(df_single$animal)) # confirm max 2 timepoints
+```
+
+## end

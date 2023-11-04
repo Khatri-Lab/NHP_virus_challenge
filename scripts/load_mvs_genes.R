@@ -17,12 +17,8 @@ infection_status_labels =  c("Healthy", "Infected")
 infection_status_label_cols = infection_status_cols
 names(infection_status_label_cols) = infection_status_labels
 
-mod1 = c("NQO2","SLPI","ORM1","KLHL2","ANXA3","TXN","AQP9","BCL6","DOK3","PFKFB4","TYK2")
-mod2 = c("BCL2L11","BCAT1","BTBD7","CEP55","HMMR","PRC1","KIF15","CAMP","CEACAM8","DEFA4","LCN2","CTSG","AZU1")
-mod3 = c("MAFB","OASL","UBE2L6","VAMP5","CCL2","NAPA","ATG3","VRK2","TMEM123","CASP7")
-mod4 = c("DOK2","HLA-DPB1","BUB3","SMYD2","SIDT1","EXOC2","TRIB2","KLRB1")
 
-mvs = fread(paste0("/Users/kalani/Desktop/Stanford_Classes/Projects/KR04_MVS-NHP/data/", "gene_mods/mvs/mvs.csv"))
+mvs = fread(paste0(paste0(here::here(),"/") ,"data/mvs.csv"))
 mvsDirections = mvs[, updown := ifelse(es>0, 'up','down')]
 mvs.up = mvs[es>0,gene]
 mvs.down = mvs[es<0,gene]
