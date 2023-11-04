@@ -1,0 +1,304 @@
+---
+title: "Step1 - Complete Data"
+output: html_document
+---
+
+## Goal of Script
+1. Download All Data
+# per object
+2. Run checkDataObject(dat$originalData$dataset, "Dataset") per object and check
+    a. The pheno is there
+    b. The expr is there
+    c. The keys are there
+    d. The colnames(expr) == rownames(pheno) and keys == rownames(expr)
+    e. Check normalization and naming of keys
+
+```{r load_libraries}
+library(MetaIntegrator)
+library(tidyr)
+library(stringr)
+library(tximport)
+library(dplyr)
+library(tximportData)
+library(DESeq2)
+library(tidyverse)
+library(data.table)
+library(HGNChelper)
+
+set.seed(4)
+```
+
+```{r setup_paths}
+path = paste0(here::here(),"/") ## should be the github project folder, otherwise adjust accordingly
+
+datPath = paste0(path, "data/")
+datPath_raw = paste0(datPath, "raw_data/")
+datPath_p = paste0(datPath, "processed_data/")
+dataPath_input = paste0(datPath, "raw_input/")
+
+## create these new directories
+dir.create(file.path(datPath))
+dir.create(file.path(datPath_raw))
+dir.create(file.path(datPath_p))
+dir.create(file.path(dataPath_input))
+
+## download method
+download_method = "curl" ## wget, libcurl, etc.
+```
+
+
+## Download and save data
+- added extras as placeholder for Sedar and PRJNAs
+```{r}
+# use R to directly download files from Baize and GSE184949_GPL29319
+
+# use getGeo to download data
+dat <- getGEOData(c("GSE41752", "GSE184949")) 
+
+# save original data
+saveRDS(dat, file = paste0(datPath_raw, "01_original_download_data.rds"))
+saveRDS(dat$originalData$GSE41752, file = paste0(datPath_raw, "GSE41752","_originalData.rds"))
+saveRDS(dat$originalData$GSE184949_GPL29319, file = paste0(datPath_raw, "GSE184949_GPL29319","_originalData.rds"))
+saveRDS(dat$originalData$GSE184949_GPL29759, file = paste0(datPath_raw, "GSE184949_GPL29759","_originalData.rds"))
+```
+
+## Check each data object/ fill in"
+
+# Key fix from here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?view=data&acc=GPL14569&id=7598&db=GeoDb_blob92 
+```{r}
+dat = readRDS(file = paste0(datPath_raw, "01_original_download_data.rds"))
+```
+
+### Check 1. GSE41752-LASV_1
+```{r GSE41752-LASV_1}
+dat$originalData$GSE41752$name = "LASV_1"
+
+# check for dates & normalization
+dobj = dat$originalData$GSE41752
+keys = dobj$keys
+genes = unname(unlist(keys))
+genes[grepl("^[[:digit:]]+",genes)]
+boxplot(dobj$expr[,1:10], xlab = dobj$name)
+
+checkDataObject(dat$originalData$GSE41752, "Dataset") 
+```
+
+### Check 2. GSE184949-SARS_5
+```{r GSE184949}
+in_file = paste0(dataPath_input, "GSE184949/")
+dir.create(file.path(in_file))
+# ##download files
+download.file("https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE184949&format=file", destfile = paste0(in_file,"counts_matrices.tar"), method = download_method)
+untar(paste0(in_file,"counts_matrices.tar"), exdir = paste0(in_file,"counts_matrices"))
+
+## add files into geo object and process
+dat$originalData$GSE184949_GPL29319$name = "SARS_5"
+checkDataObject(dat$originalData$GSE184949_GPL29319, "Dataset") 
+
+pheno = dat$originalData$GSE184949_GPL29319$pheno
+pheno$animal = substr(pheno$title, 1, 4)
+
+dir1 = paste0(in_file, "counts_matrices/")
+samples <- list.files(dir1)
+samples = samples[grepl("GSM",samples)]
+sample_table = data.frame(samples= samples)
+sample_table$sample_id = substr(sample_table$samples, 1, 10)
+sample_table = sample_table[(sample_table$sample_id %in% rownames(pheno)),]
+
+file1 = read.table(paste0(dir1, samples[1]), col.names=c("gene_id",samples[1]))
+file2 = read.table(paste0(dir1, samples[2]), col.names=c("gene_id",samples[2]))
+out.file = merge (file1, file2, by=c("gene_id"))
+
+for(i in 3:length(samples)){
+  file = read.table(paste0(dir1, samples[i]),col.names=c("gene_id",samples[i]))
+  out.file <- merge(out.file, file, by=c("gene_id"))
+}
+
+rownames(sample_table) = sample_table$sample_id
+sample_table = merge(sample_table, pheno, by = 0)
+
+sampleTable <- data.frame(sampleName = sample_table$sample_id,
+                      fileName = sample_table$samples,
+                      condition = sample_table$animal)
+
+
+ddsHTSeq <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
+                                   directory = dir1,
+                                   design= ~ condition)
+
+out_list = rownames(ddsHTSeq@assays@data$counts)[grepl("N_", rownames(ddsHTSeq@assays@data$counts))]
+
+vsd <- vst(ddsHTSeq, blind=FALSE)
+normalizedGeneCounts = assay(vsd)
+normalizedGeneCounts = normalizedGeneCounts[!rownames(normalizedGeneCounts) %in% out_list,]
+table(duplicated(rownames(normalizedGeneCounts)))
+
+dat$originalData$GSE184949_GPL29319$expr = normalizedGeneCounts
+dat$originalData$GSE184949_GPL29319$keys = rownames(normalizedGeneCounts)
+names(dat$originalData$GSE184949_GPL29319$keys) = rownames(normalizedGeneCounts)
+
+# check for dates & count normalization
+dobj = dat$originalData$GSE184949_GPL29319
+keys = dobj$keys
+genes = unname(unlist(keys))
+genes[grepl("^[[:digit:]]+",genes)]
+boxplot(dobj$expr[,1:10], xlab = dobj$name)
+
+checkDataObject(dat$originalData$GSE184949_GPL29319, "Dataset") 
+```
+
+### Check 3. GSE184949-SARS_6
+```{r GSE184949}
+dat$originalData$GSE184949_GPL29759$name = "SARS_5"
+checkDataObject(dat$originalData$GSE184949_GPL29759, "Dataset") 
+
+pheno = dat$originalData$GSE184949_GPL29759$pheno
+pheno$animal = substr(pheno$title, 1, 4)
+
+## add files into geo object and process
+in_file = paste0(dataPath_input, "GSE184949/")
+dir1 = paste0(in_file, "counts_matrices/")
+samples <- list.files(dir1)
+samples = samples[grepl("GSM",samples)]
+sample_table = data.frame(samples= samples)
+sample_table$sample_id = substr(sample_table$samples, 1, 10)
+sample_table = sample_table[(sample_table$sample_id %in% rownames(pheno)),]
+
+file1 = read.table(paste0(dir1, samples[1]), col.names=c("gene_id",samples[1]))
+file2 = read.table(paste0(dir1, samples[2]), col.names=c("gene_id",samples[2]))
+out.file = merge (file1, file2, by=c("gene_id"))
+
+for(i in 3:length(samples)){
+  file = read.table(paste0(dir1, samples[i]),col.names=c("gene_id",samples[i]))
+  out.file <- merge(out.file, file, by=c("gene_id"))
+}
+
+rownames(sample_table) = sample_table$sample_id
+sample_table = merge(sample_table, pheno, by = 0)
+
+sampleTable <- data.frame(sampleName = sample_table$sample_id,
+                      fileName = sample_table$samples,
+                      condition = sample_table$animal)
+
+
+ddsHTSeq <- DESeqDataSetFromHTSeqCount(sampleTable = sampleTable,
+                                   directory = dir1,
+                                   design= ~ condition)
+
+out_list = rownames(ddsHTSeq@assays@data$counts)[grepl("N_", rownames(ddsHTSeq@assays@data$counts))]
+
+vsd <- vst(ddsHTSeq, blind=FALSE)
+normalizedGeneCounts = assay(vsd)
+normalizedGeneCounts = normalizedGeneCounts[!rownames(normalizedGeneCounts) %in% out_list,]
+table(duplicated(rownames(normalizedGeneCounts)))
+
+dat$originalData$GSE184949_GPL29759$expr = normalizedGeneCounts
+dat$originalData$GSE184949_GPL29759$keys = rownames(normalizedGeneCounts)
+names(dat$originalData$GSE184949_GPL29759$keys) = rownames(normalizedGeneCounts)
+
+# check for dates & count normalization
+dobj = dat$originalData$GSE184949_GPL29759
+keys = dobj$keys
+genes = unname(unlist(keys))
+genes[grepl("^[[:digit:]]+",genes)]
+boxplot(dobj$expr[,1:10], xlab = dobj$name)
+
+checkDataObject(dat$originalData$GSE184949_GPL29759, "Dataset") 
+```
+
+### Check 4. Baize-MACV_1
+```{r Baize-MACV_1}
+in_file = paste0(dataPath_input, "Baize/")
+dir.create(file.path(in_file))
+
+## download data
+download.file('https://zenodo.org/records/7229439/files/counts_post.txt?download=1', destfile = paste0(in_file,"counts_post.txt"), method = download_method)
+download.file('https://zenodo.org/records/7229439/files/target_post.txt?download=1', destfile = paste0(in_file,"post-infection-timepoints.csv"), method = download_method)
+
+## add files into geo object and process
+dat$originalData$Baize = dat$originalData$GSE99463
+dat$originalData$Baize$name = "MACV_1"
+obj = dat$originalData$Baize
+
+metadata = read.table(paste0(in_file,"post-infection-timepoints.csv"), sep = " ", header = T)
+rownames(metadata) = metadata$samples
+metadata = separate(metadata, col = "samples",sep = "_", into = c("animal","day"), remove = FALSE)
+metadata$day = gsub("J","", metadata$day)
+
+
+require(biomaRt)
+ensembl <- useMart('ensembl', dataset = 'mfascicularis_gene_ensembl')
+annot <- getBM(
+  attributes = c(
+    'external_gene_name',
+    'ensembl_gene_id',
+    'gene_biotype',
+    'external_synonym'),
+  mart = ensembl)
+
+saveRDS(annot, paste0(in_file,"annotation_cm.rds"))
+annot = readRDS(paste0(in_file,"annotation_cm.rds"))
+
+expr_dat = read.table(paste0(in_file,"counts_post.txt"), row.names = 1)
+dds <- DESeqDataSetFromMatrix(countData = expr_dat,
+                              colData = metadata,
+                              design = ~ animal)
+
+vsd <- vst(dds, blind=FALSE)
+normalizedGeneCounts = assay(vsd)
+
+# create key
+annot_order = annot
+annot_order$external_synonym = NULL
+annot_order$gene_biotype = NULL
+annot_order = unique(annot_order)
+table(duplicated(annot_order$ensembl_gene_id))
+
+df = rownames(normalizedGeneCounts) %>% as.data.frame()
+colnames(df) = "ensembl_gene_id"
+key = merge(df, annot_order, by = "ensembl_gene_id", all.x = TRUE, all.y = FALSE)
+
+key = key[match(rownames(normalizedGeneCounts), key$ensembl_gene_id),]
+setequal(rownames(normalizedGeneCounts), key$ensembl_gene_id)
+rownames(key) = key$ensembl_gene_id
+key$ensembl_gene_id = NULL
+###########
+obj$pheno = metadata
+obj$expr = normalizedGeneCounts
+obj$keys = key$external_gene_name
+names(obj$keys) = rownames(key)
+obj$name = "Baize"
+obj$platform = "Illumina"
+obj$formattedName = "Baize"
+obj$class = rep(0,nrow(metadata))
+names(obj$class) = (rownames(metadata))
+
+checkDataObject(obj, "Dataset") 
+
+# check for dates & count normalization
+dobj = obj
+keys = dobj$keys
+genes = unname(unlist(keys))
+genes[grepl("^[[:digit:]]+",genes)]
+boxplot(dobj$expr[,1:10], xlab = dobj$name)
+
+dat$originalData$Baize = obj
+```
+
+```{r order_object}
+dat_ordered = list()
+dat_ordered$originalData = list()
+dat_ordered$originalData$Baize = dat$originalData$Baize
+dat_ordered$originalData$GSE41752 = dat$originalData$GSE41752
+dat_ordered$originalData$GSE184949_GPL29319 = dat$originalData$GSE184949_GPL29319
+dat_ordered$originalData$GSE184949_GPL29759 = dat$originalData$GSE184949_GPL29759
+
+length(names(dat_ordered$originalData)) == sum(names(dat_ordered$originalData) %in% names(dat$originalData))
+```
+
+```{r save_object}
+checkDataObject(dat, "Meta", "Pre-Analysis")
+saveRDS(dat, file = paste0(datPath_p, "1a_original_completed_data.rds"))
+checkDataObject(dat_ordered, "Meta", "Pre-Analysis")
+saveRDS(dat_ordered, file = paste0(datPath_p, "1b_original_completed_ordered_data.rds"))
+```
